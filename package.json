@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev " ,
-        "dev:network": "next dev -H 0.0.0.0 -p 3000",
+     "dev": "next dev",
     "build": "next build",
+    "build-fix": "next build --no-lint",
     "start": "next start",
+    "start-standalone": "node .next/standalone/server.js",
+    "start-fix": "node .next/standalone/server.js",
     "lint": "next lint",
-        "build-fix": "next build --no-lint",
     "setup-db": "node scripts/setup-database.js"
   },
   "dependencies": {
