@@ -2,8 +2,8 @@
   "name": "my-upwork-assistant",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-     "dev": "next dev",
+    "scripts": {
+    "dev": "next dev",
     "build": "next build",
     "build-fix": "next build --no-lint",
     "start": "next start",
