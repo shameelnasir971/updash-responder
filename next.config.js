@@ -1,3 +1,4 @@
+// next.config.js 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Static export disable karein - server needed
@@ -17,13 +18,6 @@ const nextConfig = {
         destination: '/api/:path*',
       },
     ]
-  },
-  // ✅ NEW: Dynamic server usage ke liye fix
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   }
 }
 
