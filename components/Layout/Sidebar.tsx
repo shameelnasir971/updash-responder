@@ -41,23 +41,30 @@ export default function Sidebar({
   const isActive = (path: string) => pathname === path
 
   // Check Upwork connection status
-  useEffect(() => {
-    checkUpworkStatus()
-  }, [])
-
-  const checkUpworkStatus = async () => {
+useEffect(() => {
+  const checkConnection = async () => {
     try {
       const response = await fetch('/api/upwork/status')
       if (response.ok) {
         const data = await response.json()
         setUpworkConnected(data.connected)
-        setConnectionStatus(data.connected ? 'connected' : 'idle')
+        
+        // If connected, fetch a test job
+        if (data.connected) {
+          const jobsResponse = await fetch('/api/jobs')
+          if (jobsResponse.ok) {
+            const jobsData = await jobsResponse.json()
+            console.log('✅ Upwork connected, job count:', jobsData.total)
+          }
+        }
       }
     } catch (error) {
-      console.error('Error checking Upwork status:', error)
-      setConnectionStatus('error')
+      console.error('Connection check error:', error)
     }
   }
+  
+  checkConnection()
+}, [])
 
 const handleConnectUpwork = async () => {
   setConnecting(true)

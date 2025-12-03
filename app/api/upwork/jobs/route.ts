@@ -2,9 +2,68 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
+import pool from '../../../../lib/database'
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+// REAL UPWORK API JOBS FETCH
+async function fetchRealUpworkJobs(accessToken: string, userId: number) {
+  try {
+    console.log('🔗 Fetching real jobs from Upwork API...')
+    
+    // Upwork API endpoint for job search
+    const response = await fetch('https://www.upwork.com/api/profiles/v2/search/jobs.json', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      console.error('❌ Upwork API error:', response.status)
+      throw new Error(`Upwork API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log(`✅ Fetched ${data.jobs?.length || 0} jobs from Upwork`)
+    
+    // Transform Upwork jobs to our format
+    const jobs = (data.jobs || []).map((job: any) => ({
+      id: job.id || `upwork_${Date.now()}`,
+      title: job.title || 'Untitled Job',
+      description: job.description || '',
+      budget: job.budget ? 
+        `$${job.budget.amount} ${job.budget.currency}` : 
+        'Not specified',
+      postedDate: job.created_on ? 
+        new Date(job.created_on).toLocaleString() : 
+        'Recently',
+      client: {
+        name: job.client?.name || 'Unknown Client',
+        rating: job.client?.feedback || 0,
+        country: job.client?.country || 'Not specified',
+        totalSpent: job.client?.total_spent || 0,
+        totalHires: job.client?.total_hires || 0
+      },
+      skills: job.skills || [],
+      proposals: job.proposals || 0,
+      verified: job.verified || false,
+      category: job.category || 'General',
+      duration: job.duration || 'Not specified',
+      source: 'upwork' // Mark as real Upwork job
+    }))
+
+    return jobs
+  } catch (error: any) {
+    console.error('❌ Upwork API fetch error:', error.message)
+    throw error
+  }
+}
+
+// GET - Fetch jobs
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -12,49 +71,103 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
+    console.log('🎯 Fetching jobs for user:', user.email)
+
+    // Check if user has connected Upwork
+    const upworkResult = await pool.query(
+      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
+      [user.id]
+    )
+
+    let jobs = []
+    let source = 'none'
+    
+    if (upworkResult.rows.length > 0 && upworkResult.rows[0].access_token) {
+      // Fetch REAL JOBS from Upwork
+      try {
+        const accessToken = upworkResult.rows[0].access_token
+        jobs = await fetchRealUpworkJobs(accessToken, user.id)
+        source = 'upwork'
+        console.log(`✅ Loaded ${jobs.length} real jobs from Upwork`)
+      } catch (apiError) {
+        console.error('❌ Failed to fetch from Upwork, using single mock job')
+        // Single mock job fallback
+        jobs = [getSingleMockJob()]
+        source = 'mock_fallback'
+      }
+    } else {
+      // Upwork not connected - single mock job
+      jobs = [getSingleMockJob()]
+      source = 'mock_not_connected'
+      console.log('ℹ️ Upwork not connected, showing connect prompt')
+    }
+
+    // Get URL parameters for filtering
     const { searchParams } = new URL(request.url)
-    const category = searchParams.get('category') || 'development'
-    const count = searchParams.get('count') || '20'
+    const category = searchParams.get('category')
+    const search = searchParams.get('search')
 
-    // Real Upwork API call implementation
-    const jobs = await fetchRealUpworkJobs(category, parseInt(count))
+    // Apply filters
+    let filteredJobs = jobs
+    if (category && category !== 'all') {
+      filteredJobs = filteredJobs.filter((job: { category: string; }) => 
+        job.category?.toLowerCase().includes(category.toLowerCase())
+      )
+    }
 
-    return NextResponse.json({ jobs })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error('Real Upwork jobs API error:', error)
+    if (search) {
+      const searchLower = search.toLowerCase()
+      filteredJobs = filteredJobs.filter((job: { title: string; description: string; skills: string[]; }) => 
+        job.title.toLowerCase().includes(searchLower) ||
+        job.description.toLowerCase().includes(searchLower) ||
+        job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower))
+      )
+    }
+
     return NextResponse.json({ 
-      error: 'Failed to fetch jobs from Upwork: ' + error.message 
-    }, { status: 500 })
+      success: true,
+      jobs: filteredJobs,
+      total: filteredJobs.length,
+      source: source,
+      upworkConnected: upworkResult.rows.length > 0,
+      message: source === 'upwork' ? 
+        `🎯 Loaded ${filteredJobs.length} real jobs from Upwork` :
+        '🔗 Connect Upwork to see real jobs'
+    })
+
+  } catch (error: any) {
+    console.error('❌ Jobs API error:', error)
+    return NextResponse.json({ 
+      success: true,
+      jobs: [getSingleMockJob()],
+      total: 1,
+      source: 'error_fallback',
+      error: error.message,
+      message: '❌ Error loading jobs - Connect Upwork account'
+    })
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchRealUpworkJobs(category: string, count: number): Promise<any[]> {
-  const clientId = process.env.UPWORK_CLIENT_ID
-  const clientSecret = process.env.UPWORK_CLIENT_SECRET
-
-  if (!clientId || !clientSecret) {
-    throw new Error('Upwork API credentials not configured')
-  }
-
-  try {
-    // This is where you would implement the actual Upwork API calls
-    // Upwork uses OAuth 1.0a for authentication
-    
-    // For now, return empty array - NO MOCK DATA
-    // In production, implement:
-    // 1. OAuth authentication
-    // 2. API calls to Upwork jobs endpoint
-    // 3. Proper error handling
-    
-    console.log('🔗 Attempting real Upwork API connection...')
-    
-    return [] // Real implementation would return actual jobs
-    
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error('Real Upwork API error:', error)
-    throw new Error('Upwork API connection failed: ' + error.message)
+// Single mock job (only for fallback)
+function getSingleMockJob() {
+  return {
+    id: "upwork_connect_prompt",
+    title: "🔗 Connect Your Upwork Account",
+    description: "To see real job listings, please connect your Upwork account. Click the 'Connect Upwork' button in the sidebar to get started.",
+    budget: "Free to connect",
+    postedDate: new Date().toLocaleString(),
+    client: {
+      name: "Upwork Platform",
+      rating: 5.0,
+      country: "Worldwide",
+      totalSpent: 0,
+      totalHires: 0
+    },
+    skills: ["Upwork", "Account Setup", "API Connection"],
+    proposals: 0,
+    verified: true,
+    category: "System",
+    duration: "Instant",
+    isConnectPrompt: true
   }
 }

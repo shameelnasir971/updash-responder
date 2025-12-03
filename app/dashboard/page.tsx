@@ -119,22 +119,40 @@ export default function Dashboard() {
   }
 
   const loadJobs = async () => {
-    setJobsLoading(true)
-    try {
-      const response = await fetch('/api/jobs')
-      if (response.ok) {
-        const data = await response.json()
-        setJobs(data.jobs || professionalJobs)
+  setJobsLoading(true)
+  try {
+    const response = await fetch('/api/jobs')
+    if (response.ok) {
+      const data = await response.json()
+      
+      // Check if we got the connect prompt
+      if (data.jobs && data.jobs.length === 1 && data.jobs[0].isConnectPrompt) {
+        // Show connect prompt
+        setJobs([data.jobs[0]])
+        setUpworkConnected(false)
       } else {
-        setJobs(professionalJobs)
+        // Real jobs from Upwork
+        setJobs(data.jobs || [])
+        setUpworkConnected(data.upworkConnected || false)
       }
-    } catch (error) {
-      console.error('Jobs loading error:', error)
-      setJobs(professionalJobs)
-    } finally {
-      setJobsLoading(false)
+      
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        totalJobs: data.total || 0
+      }))
+      
+    } else {
+      setJobs([])
     }
+  } catch (error) {
+    console.error('Jobs loading error:', error)
+    setJobs([])
+  } finally {
+    setJobsLoading(false)
   }
+}
+
 
   // Handle Generate Proposal Button Click
   const handleGenerateProposalClick = (job: Job) => {
@@ -606,4 +624,8 @@ const sendProposal = async () => {
       )}
     </div>
   )
+}
+
+function setUpworkConnected(arg0: any) {
+  throw new Error('Function not implemented.')
 }
