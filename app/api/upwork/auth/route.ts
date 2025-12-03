@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_search r_proposals w_proposals r_manage')    
+    authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_search r_proposals w_proposals r_manage r_messages r_cmy_team r_cmy_observations')
     const state = `user_${user.id}_${Date.now()}`
     authUrl.searchParams.set('state', state)
 
