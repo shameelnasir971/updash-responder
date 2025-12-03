@@ -6,9 +6,9 @@ import pool from '../../../lib/database'
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// ✅ SIMPLE AND RELIABLE JOB FETCH
+// ✅ SIMPLE FUNCTION TO FETCH REAL JOBS
 async function fetchUpworkJobs(accessToken: string, keywords: string = 'web development') {
-  console.log('🔗 Fetching jobs from Upwork API...')
+  console.log('🔗 Fetching real jobs from Upwork API...')
   
   try {
     const response = await fetch(
@@ -31,7 +31,7 @@ async function fetchUpworkJobs(accessToken: string, keywords: string = 'web deve
     }
 
     const data = await response.json()
-    console.log(`✅ API returned ${data.jobs?.length || 0} jobs`)
+    console.log(`✅ API returned ${data.jobs?.length || 0} real jobs`)
     
     return (data.jobs || []).map((job: any) => ({
       id: job.id || `upwork_${Date.now()}`,
@@ -92,7 +92,18 @@ export async function GET(request: NextRequest) {
       const upworkUserName = upworkResult.rows[0].upwork_user_name || 'User'
       
       try {
-        jobs = await fetchUpworkJobs(accessToken)
+        // Get user's keywords from prompt settings
+        const promptResult = await pool.query(
+          'SELECT basic_info FROM prompt_settings WHERE user_id = $1',
+          [user.id]
+        )
+        
+        let keywords = 'web development react node javascript'
+        if (promptResult.rows.length > 0 && promptResult.rows[0].basic_info?.keywords) {
+          keywords = promptResult.rows[0].basic_info.keywords
+        }
+
+        jobs = await fetchUpworkJobs(accessToken, keywords)
         source = 'upwork'
         message = `✅ Loaded ${jobs.length} real jobs from Upwork`
         console.log(message)
