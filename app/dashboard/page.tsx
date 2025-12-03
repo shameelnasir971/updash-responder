@@ -29,6 +29,7 @@ interface Job {
   verified: boolean
   category?: string
   duration?: string
+  isConnectPrompt?: boolean
 }
 
 export default function Dashboard() {
@@ -38,6 +39,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobsLoading, setJobsLoading] = useState(false)
+  const [upworkConnected, setUpworkConnected] = useState(false) // ✅ YEH MISSING THA!
   
   // Popup states
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
@@ -49,53 +51,11 @@ export default function Dashboard() {
   const [proposalGenerated, setProposalGenerated] = useState(false)
 
   const [stats, setStats] = useState({
-    totalJobs: 2107,
-    matchedJobs: 1359,
+    totalJobs: 0,
+    matchedJobs: 0,
     proposalsSent: 48,
     successRate: 12
   })
-
-  // Professional jobs data
-  const professionalJobs: Job[] = [
-    {
-      id: "job_001",
-      title: "Architect Needed for Tactile Design on Floor Plan",
-      description: "We are looking for an experienced architect to create tactile designs for floor plans. The project involves creating accessible designs for visually impaired individuals.",
-      budget: "$15.0-30.0 USD",
-      postedDate: "Nov 21, 2025 3:13 PM",
-      client: {
-        name: "Design Solutions Inc",
-        rating: 4.8,
-        country: "United States",
-        totalSpent: 25000,
-        totalHires: 45
-      },
-      skills: ["Architectural Design", "Tactile Design", "Floor Plans"],
-      proposals: 15,
-      verified: true,
-      category: "Design & Creative",
-      duration: "1-3 months"
-    },
-    {
-      id: "job_002", 
-      title: "Full Stack Developer Needed for E-commerce Platform",
-      description: "Looking for experienced full stack developer to build e-commerce platform with React, Node.js and MongoDB.",
-      budget: "$35.0-70.0 USD",
-      postedDate: "Nov 21, 2025 2:45 PM",
-      client: {
-        name: "Tech Solutions LLC",
-        rating: 4.9,
-        country: "United States", 
-        totalSpent: 18000,
-        totalHires: 32
-      },
-      skills: ["React", "Node.js", "MongoDB", "E-commerce"],
-      proposals: 23,
-      verified: true,
-      category: "Web Development",
-      duration: "2-4 months"
-    }
-  ]
 
   useEffect(() => {
     checkAuth()
@@ -119,43 +79,52 @@ export default function Dashboard() {
   }
 
   const loadJobs = async () => {
-  setJobsLoading(true)
-  try {
-    const response = await fetch('/api/jobs')
-    if (response.ok) {
-      const data = await response.json()
-      
-      // Check if we got the connect prompt
-      if (data.jobs && data.jobs.length === 1 && data.jobs[0].isConnectPrompt) {
-        // Show connect prompt
-        setJobs([data.jobs[0]])
-        setUpworkConnected(false)
+    setJobsLoading(true)
+    try {
+      const response = await fetch('/api/jobs')
+      if (response.ok) {
+        const data = await response.json()
+        
+        console.log('📊 Jobs API response:', data)
+        
+        // Check if we got the connect prompt
+        if (data.jobs && data.jobs.length > 0 && data.jobs[0].isConnectPrompt) {
+          // Show connect prompt
+          setJobs([data.jobs[0]])
+          setUpworkConnected(false)
+        } else {
+          // Real jobs from Upwork
+          setJobs(data.jobs || [])
+          setUpworkConnected(data.upworkConnected || false)
+        }
+        
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          totalJobs: data.total || 0,
+          matchedJobs: data.jobs?.length || 0
+        }))
+        
       } else {
-        // Real jobs from Upwork
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
+        setJobs([])
+        setUpworkConnected(false)
       }
-      
-      // Update stats
-      setStats(prev => ({
-        ...prev,
-        totalJobs: data.total || 0
-      }))
-      
-    } else {
+    } catch (error) {
+      console.error('❌ Jobs loading error:', error)
       setJobs([])
+      setUpworkConnected(false)
+    } finally {
+      setJobsLoading(false)
     }
-  } catch (error) {
-    console.error('Jobs loading error:', error)
-    setJobs([])
-  } finally {
-    setJobsLoading(false)
   }
-}
-
 
   // Handle Generate Proposal Button Click
   const handleGenerateProposalClick = (job: Job) => {
+    if (job.isConnectPrompt) {
+      alert('Please connect your Upwork account first to generate proposals!')
+      return
+    }
+    
     setSelectedJob(job)
     setShowPopup(true)
     setProposalGenerated(false)
@@ -218,7 +187,7 @@ ${user?.name || 'Professional Freelancer'}`)
     }
   }
 
-  // ✅ UPDATED: Save Proposal to History - Duplicate Check
+  // ✅ Save Proposal to History
   const handleSaveProposal = async () => {
     if (!selectedJob || !generatedProposal) return
 
@@ -255,82 +224,82 @@ ${user?.name || 'Professional Freelancer'}`)
     }
   }
 
-  // ✅ UPDATED: Send Proposal Function - Duplicate Check
-const sendProposal = async () => {
-  if (!selectedJob || !generatedProposal) return
+  // ✅ Send Proposal Function
+  const sendProposal = async () => {
+    if (!selectedJob || !generatedProposal) return
 
-  setSendingProposal(true)
-  
-  try {
-    // First save the proposal to history
-    const saveResponse = await fetch('/api/proposals/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jobId: selectedJob.id,
-        jobTitle: selectedJob.title,
-        jobDescription: selectedJob.description,
-        clientInfo: selectedJob.client,
-        budget: selectedJob.budget,
-        skills: selectedJob.skills,
-        proposalText: generatedProposal,
-        status: 'sent'
-      })
-    })
-
-    const saveData = await saveResponse.json()
-
-    if (saveResponse.ok && saveData.success) {
-      // Then send the proposal to Upwork
-      const sendResponse = await fetch('/api/proposals/send', {
+    setSendingProposal(true)
+    
+    try {
+      // First save the proposal to history
+      const saveResponse = await fetch('/api/proposals/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId: selectedJob.id,
           jobTitle: selectedJob.title,
+          jobDescription: selectedJob.description,
+          clientInfo: selectedJob.client,
+          budget: selectedJob.budget,
+          skills: selectedJob.skills,
           proposalText: generatedProposal,
-          originalProposal: generatedProposal,
-          editReason: 'User reviewed and sent'
+          status: 'sent'
         })
       })
 
-      const sendData = await sendResponse.json()
+      const saveData = await saveResponse.json()
 
-      if (sendResponse.ok && sendData.success) {
-        // Show appropriate message based on Upwork connection
-        if (sendData.upworkSent) {
-          alert('🎉 Proposal sent successfully to Upwork!')
+      if (saveResponse.ok && saveData.success) {
+        // Then send the proposal to Upwork
+        const sendResponse = await fetch('/api/proposals/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: selectedJob.id,
+            jobTitle: selectedJob.title,
+            proposalText: generatedProposal,
+            originalProposal: generatedProposal,
+            editReason: 'User reviewed and sent'
+          })
+        })
+
+        const sendData = await sendResponse.json()
+
+        if (sendResponse.ok && sendData.success) {
+          // Show appropriate message based on Upwork connection
+          if (sendData.upworkSent) {
+            alert('🎉 Proposal sent successfully to Upwork!')
+          } else {
+            alert('✅ Proposal saved and marked as sent (Upwork not connected)')
+          }
+          
+          // Close popup and reset
+          setShowPopup(false)
+          setSelectedJob(null)
+          setGeneratedProposal('')
+          setProposalGenerated(false)
+          
+          // Update stats
+          setStats(prev => ({
+            ...prev,
+            proposalsSent: prev.proposalsSent + 1
+          }))
+          
+          // Refresh jobs list if needed
+          loadJobs()
         } else {
-          alert('✅ Proposal saved and marked as sent (Upwork not connected)')
+          alert(sendData.error || 'Failed to send proposal')
         }
-        
-        // Close popup and reset
-        setShowPopup(false)
-        setSelectedJob(null)
-        setGeneratedProposal('')
-        setProposalGenerated(false)
-        
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          proposalsSent: prev.proposalsSent + 1
-        }))
-        
-        // Refresh jobs list if needed
-        loadJobs()
       } else {
-        alert(sendData.error || 'Failed to send proposal')
+        throw new Error(saveData.error || 'Failed to save proposal')
       }
-    } else {
-      throw new Error(saveData.error || 'Failed to save proposal')
+    } catch (error: any) {
+      console.error('Proposal send error:', error)
+      alert('Failed to send proposal: ' + error.message)
+    } finally {
+      setSendingProposal(false)
     }
-  } catch (error: any) {
-    console.error('Proposal send error:', error)
-    alert('Failed to send proposal: ' + error.message)
-  } finally {
-    setSendingProposal(false)
   }
-}
 
   if (loading) {
     return (
@@ -383,20 +352,45 @@ const sendProposal = async () => {
           </div>
         </div>
 
+        {/* Connection Status Banner */}
+        {!upworkConnected && jobs.length === 1 && jobs[0].isConnectPrompt && (
+          <div className="mb-6 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl p-6 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="mr-4 text-3xl">🔗</div>
+                <div>
+                  <h3 className="text-xl font-bold mb-1">Connect Upwork Account</h3>
+                  <p className="text-blue-100">Connect your Upwork account to view real job listings and send proposals directly</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => window.location.href = '/dashboard?connect=upwork'}
+                className="bg-white text-blue-600 px-6 py-3 rounded-lg font-semibold hover:bg-blue-50 transition-colors shadow-lg"
+              >
+                Connect Now
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="grid grid-cols-1 gap-6">
           <div className="card">
             <div className="p-6 border-b border-gray-200">
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900">Recommended Jobs</h2>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {upworkConnected ? 'Upwork Jobs' : 'Recommended Jobs'}
+                  </h2>
                   <p className="text-gray-600 text-sm mt-1">
-                    Opportunities based on your profile
+                    {upworkConnected 
+                      ? `Showing ${jobs.length} real jobs from Upwork` 
+                      : 'Connect Upwork to see real job listings'}
                   </p>
                 </div>
                 
                 <div className="text-sm text-gray-600">
-                  Showing {jobs.length} of {stats.totalJobs} jobs
+                  {upworkConnected && `Showing ${jobs.length} of ${stats.totalJobs} jobs`}
                 </div>
               </div>
             </div>
@@ -422,8 +416,12 @@ const sendProposal = async () => {
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-2">
-                              <h3 className="font-semibold text-gray-900 text-base">{job.title}</h3>
-                              {job.verified && (
+                              <h3 className={`font-semibold text-base ${
+                                job.isConnectPrompt ? 'text-blue-600' : 'text-gray-900'
+                              }`}>
+                                {job.title}
+                              </h3>
+                              {job.verified && !job.isConnectPrompt && (
                                 <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full flex items-center">
                                   <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1"></span>
                                   Verified
@@ -439,32 +437,45 @@ const sendProposal = async () => {
 
                             <p className="text-gray-700 text-sm mb-3 line-clamp-2">{job.description}</p>
 
-                            <div className="flex flex-wrap gap-1 mb-3">
-                              {job.skills.map((skill, index) => (
-                                <span key={index} className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded border border-gray-300">
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
+                            {!job.isConnectPrompt && job.skills && job.skills.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-3">
+                                {job.skills.map((skill, index) => (
+                                  <span key={index} className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded border border-gray-300">
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span>Proposals: {job.proposals}</span>
-                          <span>Budget: {job.budget}</span>
-                          {job.category && <span>Category: {job.category}</span>}
-                        </div>
+                        {!job.isConnectPrompt && (
+                          <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <span>Proposals: {job.proposals}</span>
+                            <span>Budget: {job.budget}</span>
+                            {job.category && <span>Category: {job.category}</span>}
+                          </div>
+                        )}
                       </div>
 
                       {/* GENERATE PROPOSAL BUTTON */}
                       <div className="flex flex-col sm:flex-row lg:flex-col gap-2 min-w-[140px]">
-                        <button 
-                          onClick={() => handleGenerateProposalClick(job)}
-                          disabled={proposalLoading}
-                          className="btn-primary text-sm py-2 px-4"
-                        >
-                          Generate Proposal
-                        </button>
+                        {job.isConnectPrompt ? (
+                          <button 
+                            onClick={() => window.location.href = '/dashboard?connect=upwork'}
+                            className="btn-primary text-sm py-2 px-4"
+                          >
+                            Connect Upwork
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => handleGenerateProposalClick(job)}
+                            disabled={proposalLoading}
+                            className="btn-primary text-sm py-2 px-4"
+                          >
+                            Generate Proposal
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -476,7 +487,7 @@ const sendProposal = async () => {
       </div>
 
       {/* Animated Proposal Popup */}
-      {showPopup && selectedJob && (
+      {showPopup && selectedJob && !selectedJob.isConnectPrompt && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-end z-50">
           <div 
             className={`bg-white h-full w-[500px] transform transition-transform duration-300 ${
@@ -566,7 +577,7 @@ const sendProposal = async () => {
                     placeholder="AI generated proposal will appear here..."
                   />
                   
-                  {/* ✅ UPDATED BUTTONS - Save Button Add Kiya */}
+                  {/* ✅ BUTTONS */}
                   <div className="mt-4 flex gap-3">
                     <button 
                       onClick={() => {
@@ -624,8 +635,4 @@ const sendProposal = async () => {
       )}
     </div>
   )
-}
-
-function setUpworkConnected(arg0: any) {
-  throw new Error('Function not implemented.')
 }
