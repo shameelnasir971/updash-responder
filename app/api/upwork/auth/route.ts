@@ -1,7 +1,10 @@
+//app/api/upwork/auth/route.ts
+
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,30 +13,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
+    // ✅ HARCODE LIVE URL - NO ENVIRONMENT VARIABLE
     const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI
+    const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
     
-    // Development mode mein dummy URL return karein
-    if (!clientId || !redirectUri || clientId === 'dev_client_id_123') {
-      console.log('🔧 Development mode - Using mock Upwork OAuth')
+    if (!clientId) {
       return NextResponse.json({ 
-        success: true,
-        url: '/dashboard?upwork_mock=true',
-        message: 'Development mode: Mock Upwork connection',
-        isMock: true
-      })
+        success: false,
+        error: 'UPWORK_CLIENT_ID missing in Railway variables' 
+      }, { status: 500 })
     }
 
-    // Real Upwork OAuth URL generate karein
+    // ✅ REAL UPWORK URL WITH CORRECT SCOPE
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_search r_proposals w_proposals r_manage r_messages r_cmy_team r_cmy_observations')
+    authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_search r_proposals w_proposals r_manage')
+    
     const state = `user_${user.id}_${Date.now()}`
     authUrl.searchParams.set('state', state)
 
-    console.log('🎯 Generated OAuth URL for user:', user.id)
+    console.log('🎯 PRODUCTION OAuth URL generated for:', user.email)
+    console.log('🔗 Redirect URI:', redirectUri)
     
     return NextResponse.json({ 
       success: true,

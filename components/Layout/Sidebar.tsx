@@ -59,36 +59,29 @@ export default function Sidebar({
     }
   }
 
-  const handleConnectUpwork = async () => {
-    setConnecting(true)
-    setConnectionStatus('connecting')
-    
-    try {
-      const response = await fetch('/api/upwork/auth')
-      const data = await response.json()
+const handleConnectUpwork = async () => {
+  setConnecting(true)
+  setConnectionStatus('connecting')
+  
+  try {
+    // ✅ SIRF /api/upwork/auth ENDPOINT USE KAREIN
+    const response = await fetch('/api/upwork/auth')
+    const data = await response.json()
 
-      if (response.ok) {
-        if (data.isMock) {
-          // Development mode - mock connection
-          console.log('🔧 Mock Upwork connection in development')
-          setUpworkConnected(true)
-          setConnectionStatus('connected')
-          alert('✅ Upwork connected successfully (Development Mode)')
-        } else if (data.url) {
-          // Real Upwork connection
-          window.location.href = data.url
-        }
-      } else {
-        throw new Error(data.error || 'Failed to connect')
-      }
-    } catch (error) {
-      console.error('Error connecting Upwork:', error)
-      setConnectionStatus('error')
-      alert('❌ Failed to connect Upwork. Please try again.')
-    } finally {
-      setConnecting(false)
+    if (response.ok && data.success && data.url) {
+      // ✅ REAL UPWORK URL OPEN KAREIN
+      window.location.href = data.url
+    } else {
+      throw new Error(data.error || 'Failed to connect')
     }
+  } catch (error) {
+    console.error('Error connecting Upwork:', error)
+    setConnectionStatus('error')
+    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
+  } finally {
+    setConnecting(false)
   }
+}
 
   const handleDisconnectUpwork = async () => {
     try {
