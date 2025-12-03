@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('redirect_uri', redirectUri)
     
     // ✅ FIXED LINE: Use the new approved scopes[citation:5]
-    authUrl.searchParams.set('scope', 'r_lite r_jobs r_contract r_search')
+    // authUrl.searchParams.set('scope', 'r_lite r_jobs r_contract r_search')
+    authUrl.searchParams.set('scope', 'r_basic r_jobs')
+
     
     // Add state to identify user
     const state = `user_${user.id}_${Date.now()}`
