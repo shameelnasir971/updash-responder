@@ -47,20 +47,23 @@ export async function GET(request: NextRequest) {
     console.log('📍 Redirect URI:', redirectUri)
 
     // ✅ CORRECT TOKEN EXCHANGE FOR SINGLE USER APP
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+    // Token exchange part update karein:
+const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
     
-    const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${credentials}`
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: redirectUri
-      })
-    })
+const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Authorization': `Basic ${credentials}`
+  },
+  body: new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    client_secret: clientSecret
+  })
+})
 
     console.log('📡 Token response status:', tokenResponse.status)
     
