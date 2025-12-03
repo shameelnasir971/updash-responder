@@ -71,21 +71,22 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
-    // ✅ SIRF /api/upwork/auth ENDPOINT USE KAREIN
+    // Step 1: Get OAuth URL
     const response = await fetch('/api/upwork/auth')
     const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      // ✅ REAL UPWORK URL OPEN KAREIN
+      console.log('✅ OAuth URL generated:', data.url)
+      
+      // Step 2: Open Upwork auth page in SAME tab
       window.location.href = data.url
     } else {
-      throw new Error(data.error || 'Failed to connect')
+      throw new Error(data.error || 'Failed to get OAuth URL')
     }
-  } catch (error) {
-    console.error('Error connecting Upwork:', error)
+  } catch (error: any) {
+    console.error('❌ Connection error:', error)
     setConnectionStatus('error')
-    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
-  } finally {
+    alert('❌ Failed to connect: ' + error.message)
     setConnecting(false)
   }
 }
