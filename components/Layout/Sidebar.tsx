@@ -63,8 +63,17 @@ useEffect(() => {
   
   checkConnection()
   
-  // Check every 10 seconds
-  const interval = setInterval(checkConnection, 10000)
+  // Check for connection status updates in URL params
+  const urlParams = new URLSearchParams(window.location.search)
+  if (urlParams.get('success') === 'upwork_connected') {
+    setUpworkConnected(true)
+    setConnectionStatus('connected')
+    // Refresh page to load jobs
+    setTimeout(() => window.location.reload(), 1000)
+  }
+  
+  // Check every 30 seconds
+  const interval = setInterval(checkConnection, 30000)
   return () => clearInterval(interval)
 }, [])
 

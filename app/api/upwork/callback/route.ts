@@ -12,7 +12,11 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
     const state = searchParams.get('state')
 
-    console.log('🔄 Upwork callback received:', { code: !!code, error, state })
+    console.log('🔄 Upwork callback received:', { 
+      code: !!code, 
+      error: error,
+      stateLength: state?.length 
+    })
 
     if (error) {
       console.error('❌ OAuth error from Upwork:', error)
@@ -24,27 +28,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=no_code')
     }
 
-    // Extract user ID from state
-    const userId = state ? state.split('_')[1] : null
+    // Decode state to get user ID
+    let userId: number | null = null
+    if (state) {
+      try {
+        const decodedState = JSON.parse(Buffer.from(state, 'base64').toString())
+        userId = decodedState.userId
+      } catch (e) {
+        console.error('❌ Failed to decode state:', e)
+      }
+    }
+
     if (!userId) {
       console.error('❌ Invalid state parameter')
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=invalid_state')
     }
 
-    const clientId = "b2c14bfa369cac47083f664358d3accb"
-    const clientSecret = "0146401c5c4fd338"
-    const redirectUri = "https://updash.shameelnasir.com/upwork/oauth/callback"
+    const clientId = process.env.UPWORK_CLIENT_ID
+    const clientSecret = process.env.UPWORK_CLIENT_SECRET
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      console.error('❌ Missing environment variables')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=server_config')
+    }
 
     console.log('🔄 Exchanging code for token...')
 
-    // Exchange code for access token
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
-    
+    // Exchange code for access token using Client Credentials
     const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${credentials}`
+        'Authorization': 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
@@ -64,14 +80,20 @@ export async function GET(request: NextRequest) {
 
     // Save tokens to database
     await pool.query(
-      `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
-       VALUES ($1, $2, $3, NOW())
+      `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (user_id) 
        DO UPDATE SET 
          access_token = $2, 
          refresh_token = $3,
+         expires_at = $4,
          updated_at = NOW()`,
-      [parseInt(userId), tokenData.access_token, tokenData.refresh_token]
+      [
+        userId, 
+        tokenData.access_token, 
+        tokenData.refresh_token,
+        new Date(Date.now() + (tokenData.expires_in * 1000))
+      ]
     )
 
     console.log('✅ Upwork account connected successfully!')
