@@ -1,6 +1,4 @@
-
-
-// app/api/upwork/auth/route.ts - COMPLETELY UPDATED
+// app/api/upwork/auth/route.ts - COMPLETE FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -11,39 +9,36 @@ export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
-
-    const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI || 'https://updash.shameelnasir.com/api/upwork/callback'
-    const scopes = process.env.UPWORK_SCOPES || 'r_basic r_work r_proposals r_jobs_browse'
-    
-    if (!clientId) {
       return NextResponse.json({ 
-        success: false,
-        error: 'UPWORK_CLIENT_ID missing in environment variables' 
-      }, { status: 500 })
+        success: false, 
+        error: 'Please login first' 
+      }, { status: 401 })
     }
 
     console.log('🎯 Generating Upwork OAuth URL for user:', user.email)
-    
-    // ✅ FIXED: Correct Upwork OAuth 2.0 URL with proper scopes
-    const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
-    
-    authUrl.searchParams.set('client_id', clientId)
-    authUrl.searchParams.set('response_type', 'code')
-    authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', scopes) // ✅ NEW SCOPES
-    
-    // Add state for security
-    const state = Buffer.from(`user_${user.id}_${Date.now()}_${Math.random()}`).toString('base64')
-    authUrl.searchParams.set('state', state)
 
-    console.log('🔗 Generated URL:', authUrl.toString())
+    const clientId = process.env.UPWORK_CLIENT_ID
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
+    const scopes = 'r_basic r_work r_proposals r_jobs_browse'
+
+    if (!clientId || !redirectUri) {
+      console.error('❌ Missing Upwork credentials in .env')
+      return NextResponse.json({ 
+        success: false,
+        error: 'Upwork API not configured. Please check environment variables.' 
+      }, { status: 500 })
+    }
+
+    // ✅ FIXED: Simple Upwork OAuth URL - NO SPECIAL ENCODING
+    const state = `user_${user.id}_${Date.now()}`
+    
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&state=${state}`
+
+    console.log('🔗 Generated URL (first 200 chars):', authUrl.substring(0, 200))
     
     return NextResponse.json({ 
       success: true,
-      url: authUrl.toString(),
+      url: authUrl,
       state: state,
       message: 'Upwork OAuth URL generated successfully'
     })
