@@ -1,6 +1,5 @@
 // app/api/upwork/status/route.ts
 
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -24,6 +23,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ 
       connected,
+      hasToken: !!connected,
       message: connected ? 'Upwork connected' : 'Upwork not connected'
     })
   } catch (error: any) {

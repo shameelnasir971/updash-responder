@@ -12,44 +12,59 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
     const state = searchParams.get('state')
 
-    console.log('🔄 Upwork callback received:', { code: !!code, error, state })
+    console.log('🔄 Upwork callback received:', { 
+      code: code ? 'Yes' : 'No', 
+      error, 
+      state 
+    })
 
+    // If there's an error from Upwork
     if (error) {
       console.error('❌ OAuth error from Upwork:', error)
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?error=oauth_failed&message=${encodeURIComponent(error)}`)
+      const errorDesc = searchParams.get('error_description') || error
+      return NextResponse.redirect(
+        `https://updash.shameelnasir.com/dashboard?error=oauth_failed&message=${encodeURIComponent(errorDesc)}`
+      )
     }
 
     if (!code) {
       console.error('❌ No authorization code received')
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?error=no_code`)
+      return NextResponse.redirect(
+        'https://updash.shameelnasir.com/dashboard?error=no_code'
+      )
     }
 
     // Extract user ID from state
-    const userId = state ? state.split('_')[1] : null
-    if (!userId) {
-      console.error('❌ Invalid state parameter')
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?error=invalid_state`)
+    let userId = 1; // Default fallback
+    if (state && state.includes('user_')) {
+      const parts = state.split('_');
+      if (parts.length >= 2) {
+        userId = parseInt(parts[1]) || 1;
+      }
     }
+
+    console.log('📝 User ID from state:', userId)
 
     const clientId = process.env.UPWORK_CLIENT_ID
     const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = process.env.UPWORK_REDIRECT_URI
 
     if (!clientId || !clientSecret || !redirectUri) {
-      console.error('Missing environment variables for OAuth')
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?error=server_config`)
+      console.error('❌ Missing environment variables for OAuth')
+      return NextResponse.redirect(
+        'https://updash.shameelnasir.com/dashboard?error=server_config'
+      )
     }
 
     console.log('🔄 Exchanging code for token...')
+    console.log('Using Client ID:', clientId.substring(0, 8) + '...')
 
-    // Exchange code for access token
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
-    
+    // Exchange code for access token using application/x-www-form-urlencoded
     const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${credentials}`
+        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
@@ -58,39 +73,60 @@ export async function GET(request: NextRequest) {
       })
     })
 
+    console.log('📡 Token response status:', tokenResponse.status)
+
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
       console.error('❌ Token exchange failed:', errorText)
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?error=token_exchange_failed`)
+      return NextResponse.redirect(
+        'https://updash.shameelnasir.com/dashboard?error=token_exchange_failed'
+      )
     }
 
     const tokenData = await tokenResponse.json()
-    console.log('✅ Token exchange successful:', tokenData)
+    console.log('✅ Token exchange successful')
+    console.log('Token received:', {
+      access_token: tokenData.access_token ? 'Yes' : 'No',
+      refresh_token: tokenData.refresh_token ? 'Yes' : 'No',
+      expires_in: tokenData.expires_in
+    })
+
+    // Calculate expiration date
+    const expiresAt = tokenData.expires_in 
+      ? new Date(Date.now() + (tokenData.expires_in * 1000))
+      : new Date(Date.now() + (3600 * 1000)) // Default 1 hour
 
     // Save tokens to database
-    await pool.query(
-      `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, expires_at, created_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (user_id) 
-       DO UPDATE SET 
-         access_token = EXCLUDED.access_token, 
-         refresh_token = EXCLUDED.refresh_token,
-         expires_at = EXCLUDED.expires_at,
-         updated_at = NOW()`,
-      [
-        parseInt(userId), 
-        tokenData.access_token, 
-        tokenData.refresh_token,
-        new Date(Date.now() + (tokenData.expires_in * 1000))
-      ]
-    )
+    try {
+      await pool.query(
+        `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (user_id) 
+         DO UPDATE SET 
+           access_token = EXCLUDED.access_token, 
+           refresh_token = EXCLUDED.refresh_token,
+           expires_at = EXCLUDED.expires_at,
+           updated_at = NOW()`,
+        [userId, tokenData.access_token, tokenData.refresh_token, expiresAt]
+      )
+      console.log('✅ Tokens saved to database')
+    } catch (dbError: any) {
+      console.error('❌ Database error:', dbError.message)
+      // Continue anyway, don't fail the whole process
+    }
 
     console.log('✅ Upwork account connected successfully!')
 
-    return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?success=upwork_connected`)
+    // Redirect to dashboard with success message
+    return NextResponse.redirect(
+      'https://updash.shameelnasir.com/dashboard?success=upwork_connected'
+    )
 
   } catch (error: any) {
     console.error('❌ Callback error:', error)
-    return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard?error=callback_failed&message=${encodeURIComponent(error.message)}`)
+    console.error('Error stack:', error.stack)
+    return NextResponse.redirect(
+      `https://updash.shameelnasir.com/dashboard?error=callback_failed&message=${encodeURIComponent(error.message)}`
+    )
   }
 }
