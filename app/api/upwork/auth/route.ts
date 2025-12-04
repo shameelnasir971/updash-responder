@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     }
 
     const clientId = process.env.UPWORK_CLIENT_ID
-    const scopes = process.env.UPWORK_SCOPES || 'r_basic r_work r_proposals r_jobs_browse'
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
     
     if (!clientId) {
       return NextResponse.json({ 
@@ -22,10 +22,13 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // ✅ FIXED: SIMPLE OAuth URL (NO COMPLEX REDIRECT)
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&scope=${encodeURIComponent(scopes)}`
+    // ✅ FIXED: SIRF ALLOWED SCOPES USE KARO
+    const scopes = "r_basic r_work r_proposals r_jobs_browse"
     
-    console.log('🎯 Upwork OAuth URL generated for user:', user.email)
+    // ✅ SIMPLE URL - NO COMPLEX STATE
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${encodeURIComponent(scopes)}`
+    
+    console.log('🔗 Generated URL with scopes:', scopes)
     
     return NextResponse.json({ 
       success: true,
@@ -33,10 +36,10 @@ export async function GET(request: NextRequest) {
       message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
-    console.error('❌ OAuth error:', error)
+    console.error('OAuth error:', error)
     return NextResponse.json({ 
       success: false,
-      error: 'Internal server error' 
+      error: error.message 
     }, { status: 500 })
   }
 }

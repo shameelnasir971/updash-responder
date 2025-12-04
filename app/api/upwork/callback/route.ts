@@ -10,36 +10,37 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
     const error = searchParams.get('error')
+    const errorDesc = searchParams.get('error_description')
 
-    console.log('🔄 Upwork Callback Received')
+    console.log('🔄 Callback received:', { 
+      hasCode: !!code, 
+      error: error,
+      errorDesc: errorDesc 
+    })
 
     if (error) {
-      console.error('❌ Upwork OAuth error:', error)
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(error))
+      console.error('❌ Upwork error:', errorDesc || error)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(errorDesc || error))
     }
 
     if (!code) {
-      console.error('❌ No authorization code')
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=no_code')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=no_code_received')
     }
 
-    console.log('✅ Got authorization code, exchanging for token...')
+    console.log('✅ Got authorization code')
 
     const clientId = process.env.UPWORK_CLIENT_ID
     const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
 
-    if (!clientId || !clientSecret) {
-      console.error('❌ Missing Upwork credentials')
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=missing_credentials')
-    }
-
-    // ✅ SIMPLE TOKEN EXCHANGE
+    // ✅ TOKEN EXCHANGE
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+    
     const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+        'Authorization': `Basic ${credentials}`
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
@@ -48,24 +49,25 @@ export async function GET(request: NextRequest) {
       })
     })
 
-    const tokenData = await tokenResponse.json()
-    
+    const tokenText = await tokenResponse.text()
+    console.log('📄 Token response:', tokenText.substring(0, 200))
+
     if (!tokenResponse.ok) {
-      console.error('❌ Token exchange failed:', tokenData)
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=token_exchange_failed')
+      throw new Error(`Token exchange failed: ${tokenResponse.status} - ${tokenText}`)
     }
 
+    const tokenData = JSON.parse(tokenText)
     console.log('✅ Token exchange successful')
 
-    // ✅ GET USER ID (First user from database)
-    const users = await pool.query('SELECT id FROM users ORDER BY id LIMIT 1')
-    if (users.rows.length === 0) {
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=no_user_found')
+    // ✅ FIND USER ID (single user system)
+    const users = await pool.query('SELECT id FROM users LIMIT 1')
+    const userId = users.rows[0]?.id
+
+    if (!userId) {
+      throw new Error('No user found in database')
     }
 
-    const userId = users.rows[0].id
-
-    // ✅ SAVE TOKENS
+    // ✅ SAVE TO DATABASE
     await pool.query(
       `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
        VALUES ($1, $2, $3, NOW())
@@ -77,7 +79,7 @@ export async function GET(request: NextRequest) {
       [userId, tokenData.access_token, tokenData.refresh_token || '']
     )
 
-    console.log('✅ Upwork tokens saved for user:', userId)
+    console.log('✅ Upwork account saved for user:', userId)
 
     return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected')
 
