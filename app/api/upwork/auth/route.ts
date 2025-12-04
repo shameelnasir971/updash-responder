@@ -22,15 +22,15 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // UPWORK OAuth URL
+    // UPWORK OAuth URL with CORRECT SCOPE
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
     
-    // ✅ CORRECT SCOPE - read jobs
-    authUrl.searchParams.set('scope', 'search:jobs')
+    // ✅ CORRECT SCOPE FOR UPWORK API v3
+    authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_proposals')
     
     // Add state to identify user
     const state = `user_${user.id}_${Date.now()}`
