@@ -12,59 +12,39 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
     const state = searchParams.get('state')
 
-    console.log('🔄 Upwork callback received:', { 
-      code: code ? 'Yes' : 'No', 
-      error, 
-      state 
-    })
+    console.log('🔄 Upwork callback received:', { code: !!code, error, state })
 
-    // If there's an error from Upwork
     if (error) {
       console.error('❌ OAuth error from Upwork:', error)
-      const errorDesc = searchParams.get('error_description') || error
-      return NextResponse.redirect(
-        `https://updash.shameelnasir.com/dashboard?error=oauth_failed&message=${encodeURIComponent(errorDesc)}`
-      )
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=oauth_failed&message=' + encodeURIComponent(error))
     }
 
     if (!code) {
       console.error('❌ No authorization code received')
-      return NextResponse.redirect(
-        'https://updash.shameelnasir.com/dashboard?error=no_code'
-      )
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=no_code')
     }
 
     // Extract user ID from state
-    let userId = 1; // Default fallback
-    if (state && state.includes('user_')) {
-      const parts = state.split('_');
-      if (parts.length >= 2) {
-        userId = parseInt(parts[1]) || 1;
-      }
+    const userId = state ? state.split('_')[1] : null
+    if (!userId) {
+      console.error('❌ Invalid state parameter')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=invalid_state')
     }
 
-    console.log('📝 User ID from state:', userId)
-
-    const clientId = process.env.UPWORK_CLIENT_ID
-    const clientSecret = process.env.UPWORK_CLIENT_SECRET
-    const redirectUri = process.env.UPWORK_REDIRECT_URI
-
-    if (!clientId || !clientSecret || !redirectUri) {
-      console.error('❌ Missing environment variables for OAuth')
-      return NextResponse.redirect(
-        'https://updash.shameelnasir.com/dashboard?error=server_config'
-      )
-    }
+    const clientId = "b2c14bfa369cac47083f664358d3accb"
+    const clientSecret = "0146401c5c4fd338"
+    const redirectUri = "https://updash.shameelnasir.com/upwork/oauth/callback"
 
     console.log('🔄 Exchanging code for token...')
-    console.log('Using Client ID:', clientId.substring(0, 8) + '...')
 
-    // Exchange code for access token using application/x-www-form-urlencoded
+    // Exchange code for access token
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+    
     const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+        'Authorization': `Basic ${credentials}`
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
@@ -73,60 +53,33 @@ export async function GET(request: NextRequest) {
       })
     })
 
-    console.log('📡 Token response status:', tokenResponse.status)
-
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
       console.error('❌ Token exchange failed:', errorText)
-      return NextResponse.redirect(
-        'https://updash.shameelnasir.com/dashboard?error=token_exchange_failed'
-      )
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=token_exchange_failed')
     }
 
     const tokenData = await tokenResponse.json()
     console.log('✅ Token exchange successful')
-    console.log('Token received:', {
-      access_token: tokenData.access_token ? 'Yes' : 'No',
-      refresh_token: tokenData.refresh_token ? 'Yes' : 'No',
-      expires_in: tokenData.expires_in
-    })
-
-    // Calculate expiration date
-    const expiresAt = tokenData.expires_in 
-      ? new Date(Date.now() + (tokenData.expires_in * 1000))
-      : new Date(Date.now() + (3600 * 1000)) // Default 1 hour
 
     // Save tokens to database
-    try {
-      await pool.query(
-        `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, expires_at, created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (user_id) 
-         DO UPDATE SET 
-           access_token = EXCLUDED.access_token, 
-           refresh_token = EXCLUDED.refresh_token,
-           expires_at = EXCLUDED.expires_at,
-           updated_at = NOW()`,
-        [userId, tokenData.access_token, tokenData.refresh_token, expiresAt]
-      )
-      console.log('✅ Tokens saved to database')
-    } catch (dbError: any) {
-      console.error('❌ Database error:', dbError.message)
-      // Continue anyway, don't fail the whole process
-    }
+    await pool.query(
+      `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) 
+       DO UPDATE SET 
+         access_token = $2, 
+         refresh_token = $3,
+         updated_at = NOW()`,
+      [parseInt(userId), tokenData.access_token, tokenData.refresh_token]
+    )
 
     console.log('✅ Upwork account connected successfully!')
 
-    // Redirect to dashboard with success message
-    return NextResponse.redirect(
-      'https://updash.shameelnasir.com/dashboard?success=upwork_connected'
-    )
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected')
 
   } catch (error: any) {
     console.error('❌ Callback error:', error)
-    console.error('Error stack:', error.stack)
-    return NextResponse.redirect(
-      `https://updash.shameelnasir.com/dashboard?error=callback_failed&message=${encodeURIComponent(error.message)}`
-    )
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=callback_failed')
   }
 }
