@@ -73,41 +73,29 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
-    // Step 1: Get OAuth URL
+    console.log('🔄 Testing Upwork OAuth with minimal scope...')
+    
+    // Step 1: Get OAuth URL with basic scope
     const response = await fetch('/api/upwork/auth')
     const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      console.log('✅ OAuth URL generated:', data.url)
+      console.log('✅ OAuth URL generated successfully')
+      console.log('URL:', data.url)
       
-      // Open Upwork auth in new tab
-      window.open(data.url, '_blank', 'noopener,noreferrer')
+      // Try direct redirect instead of new tab
+      window.location.href = data.url
       
-      // Check for connection after 5 seconds
-      setTimeout(async () => {
-        try {
-          const statusRes = await fetch('/api/upwork/status')
-          if (statusRes.ok) {
-            const statusData = await statusRes.json()
-            if (statusData.connected) {
-              setUpworkConnected(true)
-              setConnectionStatus('connected')
-              alert('✅ Upwork connected successfully!')
-            }
-          }
-        } catch (error) {
-          console.error('Connection verification error:', error)
-        } finally {
-          setConnecting(false)
-        }
-      }, 5000)
+      // Or open in new tab
+      // const newTab = window.open(data.url, '_blank', 'noopener,noreferrer')
+      
     } else {
       throw new Error(data.error || 'Failed to get OAuth URL')
     }
   } catch (error: any) {
     console.error('❌ Connection error:', error)
     setConnectionStatus('error')
-    alert('❌ Failed to connect: ' + error.message)
+    alert('❌ Failed to connect. Error: ' + error.message)
     setConnecting(false)
   }
 }

@@ -22,24 +22,31 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // UPWORK OAuth URL with CORRECT SCOPE
+    // ✅ **CORRECT UPWORK V3 OAUTH URL**
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
     
-    // ✅ CORRECT SCOPE FOR UPWORK API v3
-    authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_proposals')
+    // 🚨 **UPWORK V3 - ONLY THESE SCOPES WORK:**
+    // Option 1: Minimal scope (for testing)
+    // authUrl.searchParams.set('scope', '')
+    
+    // Option 2: Basic scope that works
+    authUrl.searchParams.set('scope', 'r_basic')
+    
+    // Option 3: If you need more permissions (use one of these):
+    // authUrl.searchParams.set('scope', 'r_work')
+    // authUrl.searchParams.set('scope', 'r_jobs')
+    
+    console.log('🔄 Testing with basic scope...')
     
     // Add state to identify user
     const state = `user_${user.id}_${Date.now()}`
     authUrl.searchParams.set('state', state)
 
-    console.log('🔗 Generating Upwork OAuth URL...')
-    console.log('Client ID:', clientId)
-    console.log('Redirect URI:', redirectUri)
-    console.log('State:', state)
+    console.log('🔗 OAuth URL:', authUrl.toString())
     
     return NextResponse.json({ 
       success: true,
