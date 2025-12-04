@@ -8,10 +8,73 @@ export const runtime = 'nodejs';
 
 // REAL UPWORK GRAPHQL API CALL
 async function fetchRealUpworkJobs(accessToken: string, keywords: string = 'web development') {
-  console.log('🔗 Fetching real jobs from Upwork GraphQL API...')
+  console.log('🔗 Fetching real jobs from Upwork API...')
   
   try {
-    // GraphQL query with search parameters
+    // ✅ FIXED: Correct API endpoint for Upwork's new API
+    const response = await fetch('https://www.upwork.com/api/profiles/v2/search/jobs.json', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Upwork API error:', response.status, errorText)
+      
+      // Try GraphQL as fallback
+      try {
+        return await fetchGraphQLJobs(accessToken, keywords)
+      } catch (graphqlError) {
+        throw new Error(`API error: ${response.status} - ${errorText.substring(0, 200)}`)
+      }
+    }
+
+    const data = await response.json()
+    console.log(`✅ Upwork API returned ${data.jobs?.length || 0} jobs`)
+    
+    return (data.jobs || []).map((job: any) => ({
+      id: job.id || `upwork_${Date.now()}_${Math.random()}`,
+      title: job.title || 'Untitled Job',
+      description: job.description || 'No description available',
+      budget: job.budget ? 
+        `${job.budget.amount} ${job.budget.currency}` : 
+        'Rate not specified',
+      postedDate: job.created_on ? 
+        new Date(job.created_on).toLocaleString() : 
+        new Date().toLocaleString(),
+      client: {
+        name: job.client?.name || 'Client',
+        rating: job.client?.feedback || 4.5,
+        country: job.client?.country || 'Not specified',
+        totalSpent: job.client?.total_spent || 0,
+        totalHires: job.client?.total_hires || 0
+      },
+      skills: job.skills || [],
+      proposals: job.proposals || 0,
+      verified: job.verified || false,
+      category: job.category || 'Web Development',
+      subcategory: job.subcategory || '',
+      jobType: job.job_type || 'Not specified',
+      duration: job.duration || 'Not specified',
+      source: 'upwork',
+      isRealJob: true
+    }))
+
+  } catch (error: any) {
+    console.error('❌ Upwork API fetch error:', error.message)
+    throw error
+  }
+}
+
+// ✅ FIXED: Add GraphQL fallback function
+async function fetchGraphQLJobs(accessToken: string, keywords: string) {
+  try {
+    console.log('🔄 Trying GraphQL API...')
+    
     const query = `
       query GetJobs($searchParams: JobSearchParams!) {
         jobs(searchParams: $searchParams) {
@@ -36,14 +99,6 @@ async function fetchRealUpworkJobs(accessToken: string, keywords: string = 'web 
             category
             subcategory
             jobType
-            duration
-            engagement
-            workload
-          }
-          paging {
-            total
-            offset
-            count
           }
         }
       }
@@ -51,14 +106,11 @@ async function fetchRealUpworkJobs(accessToken: string, keywords: string = 'web 
 
     const variables = {
       searchParams: {
-        category2: "web-development", // Main category
-        q: keywords, // Search keywords
+        q: keywords,
         paging: {
           offset: 0,
-          count: 50
-        },
-        jobType: ["hourly", "fixed"], // Both job types
-        duration: ["ongoing", "short-term", "long-term"]
+          count: 20
+        }
       }
     }
 
@@ -67,57 +119,50 @@ async function fetchRealUpworkJobs(accessToken: string, keywords: string = 'web 
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Upwork-API-Tenant': 'jobs'
+        'Accept': 'application/json'
       },
       body: JSON.stringify({ query, variables })
     })
 
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ Upwork API error:', errorText)
-      throw new Error(`API error: ${response.status}`)
+      throw new Error(`GraphQL error: ${response.status}`)
     }
 
     const result = await response.json()
     
     if (result.errors) {
-      console.error('❌ GraphQL errors:', result.errors)
+      console.error('GraphQL errors:', result.errors)
       throw new Error('GraphQL query failed')
     }
 
     const jobs = result.data?.jobs?.jobs || []
-    console.log(`✅ Successfully fetched ${jobs.length} real jobs from Upwork`)
+    console.log(`✅ GraphQL returned ${jobs.length} jobs`)
     
-    // Transform to our format
     return jobs.map((job: any) => ({
       id: job.id,
       title: job.title,
-      description: job.description || 'No description available',
+      description: job.description || '',
       budget: job.budget ? 
-        `$${job.budget.amount} ${job.budget.currency}` : 
-        'Rate not specified',
+        `${job.budget.amount} ${job.budget.currency}` : 
+        'Budget not specified',
       postedDate: new Date(job.createdOn).toLocaleString(),
       client: {
         name: job.client?.name || 'Client',
-        rating: job.client?.feedback || 4.5,
+        rating: job.client?.feedback || 0,
         country: job.client?.country || 'Not specified',
         totalSpent: job.client?.totalSpent || 0,
         totalHires: job.client?.totalHires || 0
       },
       skills: job.skills || [],
-      proposals: 0, // This requires separate API call
+      proposals: 0,
       verified: false,
       category: job.category || 'Web Development',
-      subcategory: job.subcategory || '',
-      jobType: job.jobType || 'Not specified',
-      duration: job.duration || 'Not specified',
-      source: 'upwork',
+      duration: job.jobType || 'Not specified',
+      source: 'upwork_graphql',
       isRealJob: true
     }))
-
-  } catch (error: any) {
-    console.error('❌ Upwork API fetch error:', error.message)
+  } catch (error) {
+    console.error('❌ GraphQL failed:', error)
     throw error
   }
 }
