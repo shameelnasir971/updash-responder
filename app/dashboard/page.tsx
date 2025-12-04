@@ -63,24 +63,34 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-    checkAuth()
-    loadJobs()
+  checkAuth()
+  loadJobs()
     
     // Check for success message from Upwork connection
-    const success = searchParams.get('success')
-    const error = searchParams.get('error')
+  const success = searchParams.get('success')
+  const reload = searchParams.get('reload')
+  
+  if (success === 'upwork_connected') {
+    console.log('✅ Upwork connection success detected')
     
-    if (success === 'upwork_connected') {
+    // Update connection status immediately
+    setUpworkConnected(true)
+    
+    // Show success message
+    setTimeout(() => {
       alert('✅ Upwork account connected successfully! Loading real jobs...')
+      // Reload jobs after a short delay
       setTimeout(() => {
         loadJobs()
       }, 1000)
-    }
-    
-    if (error) {
-      setConnectionError(`Upwork connection failed: ${searchParams.get('message') || error}`)
-    }
-  }, [searchParams])
+    }, 500)
+  }
+  
+  const error = searchParams.get('error')
+  if (error) {
+    setConnectionError(`Upwork connection failed: ${searchParams.get('message') || error}`)
+  }
+}, [searchParams])
 
   const checkAuth = async () => {
     try {

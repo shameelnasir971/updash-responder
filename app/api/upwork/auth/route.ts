@@ -16,48 +16,41 @@ export async function GET(request: NextRequest) {
     const redirectUri = process.env.UPWORK_REDIRECT_URI
 
     if (!clientId || !redirectUri) {
-      console.error('❌ Missing environment variables:', {
-        clientId: !!clientId,
-        redirectUri: !!redirectUri
-      })
       return NextResponse.json({ 
         success: false,
         error: 'Server configuration error' 
       }, { status: 500 })
     }
 
-    // CORRECT UPWORK OAuth URL with proper scopes
+    // UPWORK OAuth URL
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
     
-    // ✅ FIXED: Use correct scopes for job access
-    // 'search_jobs' for job search, 'r_workdiary' for basic profile access
-    authUrl.searchParams.set('scope', 'search_jobs r_workdiary r_myprofile')
+    // ✅ CORRECT SCOPE - read jobs
+    authUrl.searchParams.set('scope', 'search:jobs')
     
-    // Add user ID in state parameter
+    // Add state to identify user
     const state = `user_${user.id}_${Date.now()}`
     authUrl.searchParams.set('state', state)
 
-    console.log('🔗 Generating OAuth URL with parameters:', {
-      clientId: clientId.substring(0, 10) + '...',
-      redirectUri,
-      scope: 'search_jobs r_workdiary r_myprofile',
-      state
-    })
+    console.log('🔗 Generating Upwork OAuth URL...')
+    console.log('Client ID:', clientId)
+    console.log('Redirect URI:', redirectUri)
+    console.log('State:', state)
     
     return NextResponse.json({ 
       success: true,
       url: authUrl.toString(),
-      message: 'Upwork OAuth URL generated successfully'
+      message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
-    console.error('❌ OAuth generation error:', error)
+    console.error('❌ OAuth error:', error)
     return NextResponse.json({ 
       success: false,
-      error: error.message || 'Internal server error'
+      error: 'Internal server error' 
     }, { status: 500 })
   }
 }

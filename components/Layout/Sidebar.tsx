@@ -73,45 +73,81 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
-    // Step 1: Get OAuth URL
-    const response = await fetch('/api/upwork/auth')
+    // Step 1: Get OAuth URL from our API
+    const response = await fetch('/api/upwork')
+    
+    if (!response.ok) {
+      throw new Error('Failed to get OAuth URL')
+    }
+    
     const data = await response.json()
-
-    if (response.ok && data.success && data.url) {
-      console.log('✅ OAuth URL generated:', data.url)
+    
+    if (data.success && data.url) {
+      console.log('✅ OAuth URL generated successfully')
       
-      // Open Upwork auth in new tab
-      window.open(data.url, '_blank', 'noopener,noreferrer')
+      // Store connection attempt in localStorage
+      localStorage.setItem('upwork_connect_attempt', Date.now().toString())
       
-      // Check for connection after 5 seconds
-      setTimeout(async () => {
+      // Open Upwork auth in new window
+      const authWindow = window.open(
+        data.url, 
+        'upwork_auth',
+        'width=800,height=600,scrollbars=yes,resizable=yes'
+      )
+      
+      if (!authWindow) {
+        throw new Error('Popup blocked. Please allow popups for this site.')
+      }
+      
+      // Check connection status every 3 seconds
+      const checkInterval = setInterval(async () => {
         try {
           const statusRes = await fetch('/api/upwork/status')
           if (statusRes.ok) {
             const statusData = await statusRes.json()
+            
             if (statusData.connected) {
+              clearInterval(checkInterval)
               setUpworkConnected(true)
               setConnectionStatus('connected')
-              alert('✅ Upwork connected successfully!')
+              
+              // Close the auth window
+              if (authWindow && !authWindow.closed) {
+                authWindow.close()
+              }
+              
+              // Show success message
+              alert('✅ Upwork account connected successfully! Loading real jobs...')
+              
+              // Refresh the page to load jobs
+              window.location.reload()
             }
           }
         } catch (error) {
-          console.error('Connection verification error:', error)
-        } finally {
-          setConnecting(false)
+          console.error('Connection check error:', error)
         }
-      }, 5000)
+      }, 3000)
+      
+      // Stop checking after 2 minutes
+      setTimeout(() => {
+        clearInterval(checkInterval)
+        if (!upworkConnected) {
+          setConnecting(false)
+          setConnectionStatus('idle')
+          alert('❌ Connection timed out. Please try again.')
+        }
+      }, 120000)
+      
     } else {
-      throw new Error(data.error || 'Failed to get OAuth URL')
+      throw new Error(data.error || 'Failed to generate OAuth URL')
     }
   } catch (error: any) {
     console.error('❌ Connection error:', error)
     setConnectionStatus('error')
-    alert('❌ Failed to connect: ' + error.message)
+    alert('❌ Failed to connect to Upwork: ' + error.message)
     setConnecting(false)
   }
 }
-
   const handleDisconnectUpwork = async () => {
     try {
       setUpworkConnected(false)

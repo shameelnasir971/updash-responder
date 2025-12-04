@@ -1,4 +1,4 @@
-// app/api/upwork/callback/route.ts - WORKING VERSION
+// app/api/upwork/callback/route.ts - UPDATED AND FIXED
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '../../../../lib/database'
 
@@ -12,15 +12,15 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
     const state = searchParams.get('state')
 
-    console.log('🔄 Upwork callback received:', { 
-      hasCode: !!code, 
+    console.log('🔄 Upwork OAuth Callback Received:', { 
+      code: !!code, 
       error, 
       state 
     })
 
     if (error) {
       console.error('❌ OAuth error from Upwork:', error)
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=oauth_failed&message=' + encodeURIComponent(error))
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(error))
     }
 
     if (!code) {
@@ -29,9 +29,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Extract user ID from state
-    const userId = state ? state.split('_')[1] : null
+    let userId = null
+    if (state && state.startsWith('user_')) {
+      const parts = state.split('_')
+      if (parts.length >= 2) {
+        userId = parseInt(parts[1])
+      }
+    }
+
     if (!userId) {
-      console.error('❌ Invalid state parameter')
+      console.error('❌ Could not extract user ID from state')
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=invalid_state')
     }
 
@@ -40,11 +47,11 @@ export async function GET(request: NextRequest) {
     const redirectUri = process.env.UPWORK_REDIRECT_URI
 
     if (!clientId || !clientSecret || !redirectUri) {
-      console.error('❌ Missing environment variables')
+      console.error('❌ Missing OAuth configuration')
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=server_config')
     }
 
-    console.log('🔄 Exchanging code for access token...')
+    console.log('🔄 Exchanging authorization code for access token...')
 
     // Exchange code for access token using Basic Auth
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
@@ -64,31 +71,46 @@ export async function GET(request: NextRequest) {
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
-      console.error('❌ Token exchange failed:', tokenResponse.status, errorText)
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=token_failed')
+      console.error('❌ Token exchange failed:', {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        error: errorText
+      })
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=token_exchange_failed')
     }
 
     const tokenData = await tokenResponse.json()
-    console.log('✅ Token exchange successful')
+    console.log('✅ Token exchange successful:', {
+      access_token: tokenData.access_token ? 'Present' : 'Missing',
+      refresh_token: tokenData.refresh_token ? 'Present' : 'Missing',
+      expires_in: tokenData.expires_in
+    })
 
     // Save tokens to database
-    await pool.query(
-      `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (user_id) 
-       DO UPDATE SET 
-         access_token = $2, 
-         refresh_token = $3,
-         updated_at = NOW()`,
-      [parseInt(userId), tokenData.access_token, tokenData.refresh_token || null]
-    )
+    try {
+      await pool.query(
+        `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at, updated_at)
+         VALUES ($1, $2, $3, NOW(), NOW())
+         ON CONFLICT (user_id) 
+         DO UPDATE SET 
+           access_token = EXCLUDED.access_token, 
+           refresh_token = EXCLUDED.refresh_token,
+           updated_at = NOW()`,
+        [userId, tokenData.access_token, tokenData.refresh_token]
+      )
+      
+      console.log('✅ Tokens saved to database for user:', userId)
+    } catch (dbError: any) {
+      console.error('❌ Database error:', dbError.message)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=database_error')
+    }
 
-    console.log(`✅ Upwork account connected for user ${userId}!`)
-
-    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected')
+    console.log('✅ Upwork account connected successfully!')
+    
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&reload=true')
 
   } catch (error: any) {
-    console.error('❌ Callback error:', error)
-    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=callback_failed')
+    console.error('❌ Callback error:', error.stack || error.message)
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=callback_error')
   }
 }
