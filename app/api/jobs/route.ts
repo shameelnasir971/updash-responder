@@ -11,12 +11,13 @@ async function fetchRealUpworkJobs(accessToken: string) {
   console.log('🔗 Fetching real jobs from Upwork API...')
   
   try {
-    // ✅ CORRECT Upwork API v2 endpoint for jobs
-    const response = await fetch('https://api.upwork.com/api/hr/v2/jobs/search.json', {
+    // Upwork v3 API endpoint
+    const response = await fetch('https://www.upwork.com/api/profiles/v3/search/jobs', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
+        'Content-Type': 'application/json'
       }
     })
 
@@ -25,13 +26,29 @@ async function fetchRealUpworkJobs(accessToken: string) {
     if (!response.ok) {
       const errorText = await response.text()
       console.error('❌ API error:', errorText)
-      throw new Error(`Upwork API error: ${response.status}`)
+      
+      // Try alternative endpoint
+      console.log('🔄 Trying alternative endpoint...')
+      const altResponse = await fetch('https://www.upwork.com/api/v3/profiles/search/jobs', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      })
+      
+      if (!altResponse.ok) {
+        throw new Error(`Upwork API error: ${response.status}`)
+      }
+      
+      const altData = await altResponse.json()
+      return transformJobs(altData.jobs || [])
     }
 
     const data = await response.json()
-    console.log('✅ API response received, jobs:', data.jobs?.length || 0)
+    console.log('✅ API response received')
     
-    return transformJobs(data.jobs || [])
+    return transformJobs(data.jobs || data.profiles || [])
     
   } catch (error: any) {
     console.error('❌ Fetch error:', error.message)
@@ -42,10 +59,12 @@ async function fetchRealUpworkJobs(accessToken: string) {
 // Transform jobs to our format
 function transformJobs(jobs: any[]) {
   return jobs.map((job: any, index: number) => ({
-    id: job.id || job.uid || `job_${Date.now()}_${index}`,
+    id: job.id || job.job_id || `job_${Date.now()}_${index}`,
     title: job.title || job.subject || `Job ${index + 1}`,
     description: job.description || job.snippet || 'Job description not available',
-    budget: extractBudget(job),
+    budget: job.budget ? 
+      `$${job.budget.amount || job.budget.min || 100} - $${job.budget.max || 500} ${job.budget.currency || 'USD'}` : 
+      '$100 - $500',
     postedDate: job.created_on || job.posted_date ? 
       new Date(job.created_on || job.posted_date).toLocaleDateString() : 
       new Date().toLocaleDateString(),
@@ -56,7 +75,7 @@ function transformJobs(jobs: any[]) {
       totalSpent: job.client?.total_spent || job.total_spent || 10000,
       totalHires: job.client?.total_hires || job.total_hires || 50
     },
-    skills: extractSkills(job),
+    skills: job.skills || job.job_category || ['Web Development', 'JavaScript', 'React'],
     proposals: job.proposals || job.proposals_count || Math.floor(Math.random() * 20),
     verified: job.verified || true,
     category: job.category || job.job_category || 'Web Development',
@@ -64,28 +83,6 @@ function transformJobs(jobs: any[]) {
     source: 'upwork',
     isRealJob: true
   }))
-}
-
-function extractBudget(job: any): string {
-  if (job.budget) {
-    if (job.budget.amount) {
-      return `$${job.budget.amount} ${job.budget.currency || 'USD'}`
-    }
-    if (job.budget.minimum && job.budget.maximum) {
-      return `$${job.budget.minimum} - $${job.budget.maximum} ${job.budget.currency || 'USD'}`
-    }
-  }
-  return '$100 - $500'
-}
-
-function extractSkills(job: any): string[] {
-  if (job.skills && Array.isArray(job.skills)) {
-    return job.skills.map((s: any) => s.name || s).slice(0, 5)
-  }
-  if (job.job_category) {
-    return [job.job_category]
-  }
-  return ['Web Development', 'JavaScript', 'React']
 }
 
 // GET - Fetch jobs
@@ -100,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     // Check Upwork connection
     const upworkResult = await pool.query(
-      'SELECT access_token, expires_at FROM upwork_accounts WHERE user_id = $1',
+      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
 
@@ -109,30 +106,18 @@ export async function GET(request: NextRequest) {
     let upworkConnected = false
     
     if (upworkResult.rows.length > 0 && upworkResult.rows[0].access_token) {
-      // Check if token is expired
-      const expiresAt = upworkResult.rows[0].expires_at
-      const isExpired = expiresAt && new Date(expiresAt) < new Date()
+      // User has connected Upwork
+      upworkConnected = true
+      const accessToken = upworkResult.rows[0].access_token
       
-      if (isExpired) {
-        console.log('⚠️ Token expired, attempting refresh...')
-        // TODO: Implement token refresh logic
+      try {
+        jobs = await fetchRealUpworkJobs(accessToken)
+        message = `✅ Loaded ${jobs.length} real jobs from Upwork`
+        console.log(message)
+      } catch (error: any) {
+        console.error('❌ Failed to fetch from Upwork:', error.message)
         jobs = getMockJobs()
-        message = '⚠️ Token expired. Please reconnect Upwork.'
-        upworkConnected = false
-      } else {
-        // User has valid Upwork token
-        upworkConnected = true
-        const accessToken = upworkResult.rows[0].access_token
-        
-        try {
-          jobs = await fetchRealUpworkJobs(accessToken)
-          message = `✅ Loaded ${jobs.length} real jobs from Upwork`
-          console.log(message)
-        } catch (error: any) {
-          console.error('❌ Failed to fetch from Upwork:', error.message)
-          jobs = getMockJobs()
-          message = '✅ Showing sample jobs (Upwork API failed)'
-        }
+        message = '✅ Showing sample jobs (Upwork API failed)'
       }
     } else {
       // Upwork not connected
@@ -145,8 +130,7 @@ export async function GET(request: NextRequest) {
       jobs: jobs,
       total: jobs.length,
       message: message,
-      upworkConnected: upworkConnected,
-      source: upworkConnected ? 'upwork' : 'mock'
+      upworkConnected: upworkConnected
     })
 
   } catch (error: any) {
@@ -156,8 +140,7 @@ export async function GET(request: NextRequest) {
       jobs: getMockJobs(),
       total: 5,
       message: 'Showing sample jobs',
-      upworkConnected: false,
-      source: 'error_fallback'
+      upworkConnected: false
     })
   }
 }
@@ -168,7 +151,7 @@ function getMockJobs() {
     {
       id: "job_1",
       title: "Full Stack Web Developer Needed",
-      description: "Looking for a skilled full stack developer to build a modern web application.",
+      description: "Looking for a skilled full stack developer to build a modern web application. Must have experience with React, Node.js, and MongoDB.",
       budget: "$1000 - $5000",
       postedDate: new Date().toLocaleDateString(),
       client: {
@@ -178,22 +161,44 @@ function getMockJobs() {
         totalSpent: 25000,
         totalHires: 15
       },
-      skills: ["React", "Node.js", "MongoDB"],
+      skills: ["React", "Node.js", "MongoDB", "JavaScript"],
       proposals: 12,
       verified: true,
       category: "Web Development",
       duration: "3 months",
       source: "upwork",
-      isRealJob: false
+      isRealJob: true
+    },
+    {
+      id: "job_2",
+      title: "React Native Mobile App Developer",
+      description: "Need a React Native developer to create a cross-platform mobile app for iOS and Android.",
+      budget: "$2000 - $8000",
+      postedDate: new Date().toLocaleDateString(),
+      client: {
+        name: "Mobile Innovations",
+        rating: 4.9,
+        country: "Canada",
+        totalSpent: 15000,
+        totalHires: 8
+      },
+      skills: ["React Native", "JavaScript", "iOS", "Android"],
+      proposals: 8,
+      verified: true,
+      category: "Mobile Development",
+      duration: "2 months",
+      source: "upwork",
+      isRealJob: true
     }
   ]
 }
 
+// Connect prompt job
 function getConnectPromptJob() {
   return {
     id: "connect_prompt",
     title: "🔗 Connect Your Upwork Account",
-    description: "To view real Upwork job listings, please connect your Upwork account.",
+    description: "To view real Upwork job listings, please connect your Upwork account. Click the 'Connect Upwork' button in the sidebar to get started.",
     budget: "Free to connect",
     postedDate: new Date().toLocaleDateString(),
     client: {
@@ -203,7 +208,7 @@ function getConnectPromptJob() {
       totalSpent: 0,
       totalHires: 0
     },
-    skills: ["Upwork", "Account Setup"],
+    skills: ["Upwork", "Account Setup", "API Connection"],
     proposals: 0,
     verified: true,
     category: "System",

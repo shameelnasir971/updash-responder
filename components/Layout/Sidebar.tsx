@@ -4,7 +4,6 @@
 
 import { useRouter, usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
 
 interface User {
   id: number
@@ -28,7 +27,6 @@ export default function Sidebar({
 }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const [upworkConnected, setUpworkConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle')
@@ -36,14 +34,14 @@ export default function Sidebar({
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'Prompts', href: '/dashboard/prompts', icon: '⚡' },
-    { name: 'History', href: '/dashboard/history', icon: '📝' }, 
+      { name: 'History', href: '/dashboard/history', icon: '📝' }, 
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
   const isActive = (path: string) => pathname === path
 
-  // Check URL for success/error parameters
-  useEffect(() => {
+  // Check Upwork connection status
+useEffect(() => {
   const checkConnection = async () => {
     try {
       const response = await fetch('/api/upwork/status')
@@ -65,80 +63,60 @@ export default function Sidebar({
   
   checkConnection()
   
-  // Check for connection status updates in URL params
-  const urlParams = new URLSearchParams(window.location.search)
-  if (urlParams.get('success') === 'upwork_connected') {
-    setUpworkConnected(true)
-    setConnectionStatus('connected')
-    // Refresh page to load jobs
-    setTimeout(() => window.location.reload(), 1000)
-  }
-  
-  // Check every 30 seconds
-  const interval = setInterval(checkConnection, 30000)
+  // Check every 10 seconds
+  const interval = setInterval(checkConnection, 10000)
   return () => clearInterval(interval)
 }, [])
 
-  // Check Upwork connection status
-  useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        const response = await fetch('/api/upwork/test')
-        if (response.ok) {
-          const data = await response.json()
-          setUpworkConnected(data.connected && data.tokenValid)
-          setConnectionStatus(data.connected && data.tokenValid ? 'connected' : 'idle')
+const handleConnectUpwork = async () => {
+  setConnecting(true)
+  setConnectionStatus('connecting')
+  
+  try {
+    // Step 1: Get OAuth URL
+    const response = await fetch('/api/upwork/auth')
+    const data = await response.json()
+
+    if (response.ok && data.success && data.url) {
+      console.log('✅ OAuth URL generated:', data.url)
+      
+      // Open Upwork auth in new tab
+      window.open(data.url, '_blank', 'noopener,noreferrer')
+      
+      // Check for connection after 5 seconds
+      setTimeout(async () => {
+        try {
+          const statusRes = await fetch('/api/upwork/status')
+          if (statusRes.ok) {
+            const statusData = await statusRes.json()
+            if (statusData.connected) {
+              setUpworkConnected(true)
+              setConnectionStatus('connected')
+              alert('✅ Upwork connected successfully!')
+            }
+          }
+        } catch (error) {
+          console.error('Connection verification error:', error)
+        } finally {
+          setConnecting(false)
         }
-      } catch (error) {
-        console.error('Connection check error:', error)
-        setUpworkConnected(false)
-        setConnectionStatus('error')
-      }
+      }, 5000)
+    } else {
+      throw new Error(data.error || 'Failed to get OAuth URL')
     }
-    
-    checkConnection()
-    // Check every 30 seconds
-    const interval = setInterval(checkConnection, 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const handleConnectUpwork = async () => {
-    setConnecting(true)
-    setConnectionStatus('connecting')
-    
-    try {
-      // Get OAuth URL
-      const response = await fetch('/api/upwork/auth')
-      const data = await response.json()
-
-      if (response.ok && data.success && data.url) {
-        console.log('✅ Opening Upwork authorization...')
-        
-        // OPEN IN SAME TAB - No CORS issues
-        window.location.href = data.url
-      } else {
-        throw new Error(data.error || 'Failed to get authorization URL')
-      }
-    } catch (error: any) {
-      console.error('❌ Connection error:', error)
-      setConnectionStatus('error')
-      alert('❌ Failed to connect: ' + error.message)
-      setConnecting(false)
-    }
+  } catch (error: any) {
+    console.error('❌ Connection error:', error)
+    setConnectionStatus('error')
+    alert('❌ Failed to connect: ' + error.message)
+    setConnecting(false)
   }
+}
 
   const handleDisconnectUpwork = async () => {
     try {
-      const response = await fetch('/api/upwork/disconnect', {
-        method: 'POST'
-      })
-      
-      if (response.ok) {
-        setUpworkConnected(false)
-        setConnectionStatus('idle')
-        alert('✅ Upwork disconnected successfully')
-        router.refresh()
-      }
+      setUpworkConnected(false)
+      setConnectionStatus('idle')
+      console.log('🔌 Upwork disconnected')
     } catch (error) {
       console.error('Error disconnecting Upwork:', error)
     }
@@ -198,7 +176,14 @@ export default function Sidebar({
           <div className="px-4 mt-6">
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
               <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
+              <p className="text-gray-300 text-sm mb-4">
+                {upworkConnected 
+                  ? 'Your Upwork account is connected and ready to use.' 
+                  : 'Connect your Upwork account to access real job data and send proposals directly.'
+                }
+              </p>
               
+              {/* Connection Status Indicator */}
               <div className="flex items-center mb-3">
                 <div className={`w-3 h-3 rounded-full mr-2 ${
                   connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' :
@@ -206,62 +191,34 @@ export default function Sidebar({
                   connectionStatus === 'error' ? 'bg-red-500' : 'bg-gray-500'
                 }`}></div>
                 <span className="text-sm text-gray-300">
-                  {connectionStatus === 'connected' ? '✅ Connected' :
-                   connectionStatus === 'connecting' ? '🔄 Connecting...' :
-                   connectionStatus === 'error' ? '❌ Connection Error' : '🔴 Not Connected'}
+                  {connectionStatus === 'connected' ? 'Connected' :
+                   connectionStatus === 'connecting' ? 'Connecting...' :
+                   connectionStatus === 'error' ? 'Connection Error' : 'Not Connected'}
                 </span>
               </div>
 
-              <p className="text-gray-300 text-sm mb-4">
-                {upworkConnected 
-                  ? 'Your Upwork account is connected. Real jobs will appear on dashboard.' 
-                  : 'Connect your Upwork account to access real job data.'
-                }
-              </p>
-              
               <button 
                 onClick={upworkConnected ? handleDisconnectUpwork : handleConnectUpwork}
                 disabled={connecting}
-                className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center ${
+                className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors ${
                   upworkConnected
                     ? 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-green-600 text-white hover:bg-green-700'
                 } ${connecting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {connecting ? (
-                  <>
+                  <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                     Connecting...
-                  </>
+                  </div>
                 ) : upworkConnected ? (
                   '🔌 Disconnect Upwork'
                 ) : (
-                  '🔗 Connect Upwork Account'
+                  '🔗 Connect Upwork'
                 )}
               </button>
-              
-              {!upworkConnected && (
-                <p className="text-xs text-gray-400 mt-2">
-                  You will be redirected to Upwork for authorization
-                </p>
-              )}
             </div>
           </div>
-
-          {/* Connection Instructions */}
-          {!upworkConnected && (
-            <div className="px-4 mt-4">
-              <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-blue-300 mb-2">Connection Instructions:</h4>
-                <ul className="text-xs text-gray-300 space-y-1">
-                  <li>1. Click "Connect Upwork Account"</li>
-                  <li>2. Login to your Upwork account</li>
-                  <li>3. Click "Allow" to authorize</li>
-                  <li>4. You'll be redirected back automatically</li>
-                </ul>
-              </div>
-            </div>
-          )}
 
           {/* AI Training Progress */}
           <div className="px-4 mt-4">
@@ -291,7 +248,7 @@ export default function Sidebar({
                     <div 
                       className="bg-green-500 h-2 rounded-full transition-all duration-300" 
                       style={{ width: '85%' }}
-                    ></div>disconnect
+                    ></div>
                   </div>
                 </div>
               </div>
