@@ -12,7 +12,11 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
     const state = searchParams.get('state')
 
-    console.log('🔄 Upwork callback received:', { code: !!code, error, state })
+    console.log('🔄 Upwork callback received:', { 
+      hasCode: !!code, 
+      error, 
+      state 
+    })
 
     if (error) {
       console.error('❌ OAuth error from Upwork:', error)
@@ -31,13 +35,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=invalid_state')
     }
 
-    const clientId = "b2c14bfa369cac47083f664358d3accb"
-    const clientSecret = "0146401c5c4fd338"
-    const redirectUri = "https://updash.shameelnasir.com/upwork/oauth/callback"
+    const clientId = process.env.UPWORK_CLIENT_ID
+    const clientSecret = process.env.UPWORK_CLIENT_SECRET
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
 
-    console.log('🔄 Exchanging code for token...')
+    if (!clientId || !clientSecret || !redirectUri) {
+      console.error('❌ Missing environment variables')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=server_config')
+    }
 
-    // Exchange code for access token
+    console.log('🔄 Exchanging code for access token...')
+
+    // Exchange code for access token using Basic Auth
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
     
     const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
@@ -55,8 +64,8 @@ export async function GET(request: NextRequest) {
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
-      console.error('❌ Token exchange failed:', errorText)
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=token_exchange_failed')
+      console.error('❌ Token exchange failed:', tokenResponse.status, errorText)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=token_failed')
     }
 
     const tokenData = await tokenResponse.json()
@@ -71,10 +80,10 @@ export async function GET(request: NextRequest) {
          access_token = $2, 
          refresh_token = $3,
          updated_at = NOW()`,
-      [parseInt(userId), tokenData.access_token, tokenData.refresh_token]
+      [parseInt(userId), tokenData.access_token, tokenData.refresh_token || null]
     )
 
-    console.log('✅ Upwork account connected successfully!')
+    console.log(`✅ Upwork account connected for user ${userId}!`)
 
     return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected')
 

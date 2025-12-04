@@ -12,11 +12,11 @@ export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      return NextResponse.json({ connected: false, error: 'Not authenticated' }, { status: 401 })
     }
 
     const result = await pool.query(
-      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
+      'SELECT access_token, created_at FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
 
@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ 
       connected,
+      connectedAt: connected ? result.rows[0].created_at : null,
       message: connected ? 'Upwork connected' : 'Upwork not connected'
     })
   } catch (error: any) {
