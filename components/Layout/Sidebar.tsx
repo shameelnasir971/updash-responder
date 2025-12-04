@@ -48,24 +48,22 @@ useEffect(() => {
       if (response.ok) {
         const data = await response.json()
         setUpworkConnected(data.connected)
-        setConnectionStatus(data.connected ? 'connected' : 'idle')
         
+        // If connected, fetch a test job
         if (data.connected) {
-          console.log('✅ Upwork connected from status check')
+          const jobsResponse = await fetch('/api/jobs')
+          if (jobsResponse.ok) {
+            const jobsData = await jobsResponse.json()
+            console.log('✅ Upwork connected, job count:', jobsData.total)
+          }
         }
       }
     } catch (error) {
       console.error('Connection check error:', error)
-      setUpworkConnected(false)
-      setConnectionStatus('error')
     }
   }
   
   checkConnection()
-  
-  // Check every 10 seconds
-  const interval = setInterval(checkConnection, 10000)
-  return () => clearInterval(interval)
 }, [])
 
 const handleConnectUpwork = async () => {
@@ -73,41 +71,21 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
-    // Step 1: Get OAuth URL
+    // ✅ SIRF /api/upwork/auth ENDPOINT USE KAREIN
     const response = await fetch('/api/upwork/auth')
     const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      console.log('✅ OAuth URL generated:', data.url)
-      
-      // Open Upwork auth in new tab
-      window.open(data.url, '_blank', 'noopener,noreferrer')
-      
-      // Check for connection after 5 seconds
-      setTimeout(async () => {
-        try {
-          const statusRes = await fetch('/api/upwork/status')
-          if (statusRes.ok) {
-            const statusData = await statusRes.json()
-            if (statusData.connected) {
-              setUpworkConnected(true)
-              setConnectionStatus('connected')
-              alert('✅ Upwork connected successfully!')
-            }
-          }
-        } catch (error) {
-          console.error('Connection verification error:', error)
-        } finally {
-          setConnecting(false)
-        }
-      }, 5000)
+      // ✅ REAL UPWORK URL OPEN KAREIN
+      window.location.href = data.url
     } else {
-      throw new Error(data.error || 'Failed to get OAuth URL')
+      throw new Error(data.error || 'Failed to connect')
     }
-  } catch (error: any) {
-    console.error('❌ Connection error:', error)
+  } catch (error) {
+    console.error('Error connecting Upwork:', error)
     setConnectionStatus('error')
-    alert('❌ Failed to connect: ' + error.message)
+    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
+  } finally {
     setConnecting(false)
   }
 }
@@ -270,4 +248,3 @@ const handleConnectUpwork = async () => {
     </>
   )
 }
-

@@ -649,5 +649,3 @@ ${user?.name || 'Professional Freelancer'}`)
     </div>
   )
 }
-
-
