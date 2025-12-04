@@ -9,49 +9,66 @@ export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('🔗 Upwork OAuth request initiated')
+    
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      console.error('❌ User not authenticated')
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Please login first' 
+      }, { status: 401 })
     }
 
     const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI || 'https://updash.shameelnasir.com/api/upwork/callback'
-    const scopes = process.env.UPWORK_SCOPES || 'r_basic r_work r_proposals r_jobs_browse'
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
+    const scopes = process.env.UPWORK_SCOPES
     
-    if (!clientId) {
+    if (!clientId || !redirectUri) {
+      console.error('❌ Upwork credentials missing')
       return NextResponse.json({ 
-        success: false,
-        error: 'UPWORK_CLIENT_ID missing in environment variables' 
+        success: false, 
+        error: 'Upwork API not configured' 
       }, { status: 500 })
     }
 
-    console.log('🎯 Generating Upwork OAuth URL for user:', user.email)
-    
-    // ✅ FIXED: Correct Upwork OAuth 2.0 URL with proper scopes
+    console.log(`👤 User: ${user.email}, ID: ${user.id}`)
+    console.log(`🔧 Client ID: ${clientId?.substring(0, 10)}...`)
+    console.log(`🌐 Redirect URI: ${redirectUri}`)
+    console.log(`📋 Scopes: ${scopes}`)
+
+    // ✅ CORRECT UPWORK OAUTH 2.0 URL
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', scopes) // ✅ NEW SCOPES
+    authUrl.searchParams.set('scope', scopes || 'r_basic r_work r_proposals r_jobs_browse')
     
-    // Add state for security
-    const state = Buffer.from(`user_${user.id}_${Date.now()}_${Math.random()}`).toString('base64')
-    authUrl.searchParams.set('state', state)
+    // ✅ SECURE STATE PARAMETER
+    const state = JSON.stringify({
+      userId: user.id,
+      timestamp: Date.now(),
+      random: Math.random().toString(36).substring(7)
+    })
+    
+    const encodedState = Buffer.from(state).toString('base64')
+    authUrl.searchParams.set('state', encodedState)
+    
+    console.log('✅ OAuth URL generated successfully')
+    console.log(`🔗 URL: ${authUrl.toString().substring(0, 100)}...`)
 
-    console.log('🔗 Generated URL:', authUrl.toString())
-    
     return NextResponse.json({ 
       success: true,
       url: authUrl.toString(),
-      state: state,
-      message: 'Upwork OAuth URL generated successfully'
+      message: 'Upwork authorization URL generated'
     })
+
   } catch (error: any) {
-    console.error('❌ OAuth URL generation error:', error)
+    console.error('❌ OAuth error:', error)
     return NextResponse.json({ 
       success: false,
-      error: 'Internal server error: ' + error.message 
+      error: 'Failed to generate OAuth URL: ' + error.message 
     }, { status: 500 })
   }
 }

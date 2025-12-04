@@ -71,20 +71,53 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
-    // ✅ SIRF /api/upwork/auth ENDPOINT USE KAREIN
+    console.log('🔄 Generating Upwork OAuth URL...')
+    
     const response = await fetch('/api/upwork/auth')
     const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      // ✅ REAL UPWORK URL OPEN KAREIN
-      window.location.href = data.url
+      console.log('✅ OAuth URL received, redirecting...')
+      
+      // ✅ NEW WINDOW MAIN OPEN KAREN (SAFER)
+      const authWindow = window.open(data.url, 'UpworkAuth', 
+        'width=800,height=600,scrollbars=yes,resizable=yes')
+      
+      if (!authWindow) {
+        throw new Error('Popup blocked! Please allow popups for this site.')
+      }
+      
+      // ✅ CHECK INTERVAL FOR SUCCESS
+      const checkInterval = setInterval(async () => {
+        try {
+          const statusResponse = await fetch('/api/upwork/status')
+          const statusData = await statusResponse.json()
+          
+          if (statusData.connected) {
+            clearInterval(checkInterval)
+            setConnectionStatus('connected')
+            setUpworkConnected(true)
+            alert('✅ Upwork account connected successfully!')
+            window.location.reload() // Refresh to load jobs
+          }
+        } catch (error) {
+          // Continue checking
+        }
+      }, 2000)
+      
     } else {
       throw new Error(data.error || 'Failed to connect')
     }
-  } catch (error) {
-    console.error('Error connecting Upwork:', error)
+  } catch (error: any) {
+    console.error('❌ Connection error:', error)
     setConnectionStatus('error')
-    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
+    
+    // USER-FRIENDLY ERROR MESSAGES
+    if (error.message.includes('Popup blocked')) {
+      alert('⚠️ Please allow popups for this site, then try again.')
+    } else {
+      alert('❌ Failed to connect Upwork: ' + error.message)
+    }
   } finally {
     setConnecting(false)
   }
@@ -176,25 +209,31 @@ const handleConnectUpwork = async () => {
               </div>
 
               <button 
-                onClick={upworkConnected ? handleDisconnectUpwork : handleConnectUpwork}
-                disabled={connecting}
-                className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors ${
-                  upworkConnected
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                } ${connecting ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {connecting ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Connecting...
-                  </div>
-                ) : upworkConnected ? (
-                  '🔌 Disconnect Upwork'
-                ) : (
-                  '🔗 Connect Upwork'
-                )}
-              </button>
+  onClick={upworkConnected ? handleDisconnectUpwork : handleConnectUpwork}
+  disabled={connecting}
+  className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors ${
+    upworkConnected
+      ? 'bg-red-600 text-white hover:bg-red-700 border-2 border-red-700'
+      : 'bg-green-600 text-white hover:bg-green-700 border-2 border-green-700'
+  } ${connecting ? 'opacity-50 cursor-not-allowed' : ''}`}
+>
+  {connecting ? (
+    <div className="flex items-center justify-center">
+      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+      Connecting...
+    </div>
+  ) : upworkConnected ? (
+    <div className="flex items-center justify-center">
+      <span className="mr-2">🔌</span>
+      Disconnect Upwork
+    </div>
+  ) : (
+    <div className="flex items-center justify-center">
+      <span className="mr-2">🔗</span>
+      Connect Upwork
+    </div>
+  )}
+</button>
             </div>
           </div>
 

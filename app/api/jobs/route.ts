@@ -7,164 +7,160 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // REAL UPWORK GRAPHQL API CALL
-async function fetchRealUpworkJobs(accessToken: string, keywords: string = 'web development') {
-  console.log('🔗 Fetching real jobs from Upwork API...')
+async function fetchRealUpworkJobs(accessToken: string, keywords: string) {
+  console.log('🔗 Fetching real Upwork jobs...')
   
   try {
-    // ✅ FIXED: Correct API endpoint for Upwork's new API
-    const response = await fetch('https://www.upwork.com/api/profiles/v2/search/jobs.json', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
+    // 1. Try Jobs Search API (NEW API)
+    const response = await fetch(
+      `https://www.upwork.com/api/profiles/v3/search/jobs`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
       }
-    })
+    )
 
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ Upwork API error:', response.status, errorText)
-      
-      // Try GraphQL as fallback
-      try {
-        return await fetchGraphQLJobs(accessToken, keywords)
-      } catch (graphqlError) {
-        throw new Error(`API error: ${response.status} - ${errorText.substring(0, 200)}`)
-      }
+      throw new Error(`API error: ${response.status}`)
     }
 
     const data = await response.json()
-    console.log(`✅ Upwork API returned ${data.jobs?.length || 0} jobs`)
-    
-    return (data.jobs || []).map((job: any) => ({
-      id: job.id || `upwork_${Date.now()}_${Math.random()}`,
-      title: job.title || 'Untitled Job',
+    console.log(`✅ Received ${data.jobs?.length || 0} jobs`)
+
+    // Transform jobs
+    const jobs = (data.jobs || []).slice(0, 20).map((job: any) => ({
+      id: job.uid || `job_${Date.now()}_${Math.random()}`,
+      title: job.title || 'Upwork Job',
       description: job.description || 'No description available',
       budget: job.budget ? 
         `${job.budget.amount} ${job.budget.currency}` : 
         'Rate not specified',
       postedDate: job.created_on ? 
-        new Date(job.created_on).toLocaleString() : 
-        new Date().toLocaleString(),
+        new Date(job.created_on).toLocaleDateString() : 
+        new Date().toLocaleDateString(),
       client: {
-        name: job.client?.name || 'Client',
+        name: job.client?.name || 'Upwork Client',
         rating: job.client?.feedback || 4.5,
         country: job.client?.country || 'Not specified',
         totalSpent: job.client?.total_spent || 0,
         totalHires: job.client?.total_hires || 0
       },
       skills: job.skills || [],
-      proposals: job.proposals || 0,
+      proposals: job.candidates || 0,
       verified: job.verified || false,
-      category: job.category || 'Web Development',
-      subcategory: job.subcategory || '',
-      jobType: job.job_type || 'Not specified',
+      category: job.category || 'General',
       duration: job.duration || 'Not specified',
       source: 'upwork',
       isRealJob: true
     }))
 
+    return jobs
+
   } catch (error: any) {
-    console.error('❌ Upwork API fetch error:', error.message)
-    throw error
+    console.error('❌ Jobs fetch failed:', error.message)
+    
+    // 2. FALLBACK: Use GraphQL API
+    try {
+      return await fetchGraphQLJobs(accessToken)
+    } catch (graphqlError) {
+      // 3. FALLBACK: Use REST API v2
+      try {
+        return await fetchRESTJobs(accessToken)
+      } catch (restError) {
+        throw new Error('All Upwork APIs failed')
+      }
+    }
   }
 }
 
-// ✅ FIXED: Add GraphQL fallback function
-async function fetchGraphQLJobs(accessToken: string, keywords: string) {
-  try {
-    console.log('🔄 Trying GraphQL API...')
-    
-    const query = `
-      query GetJobs($searchParams: JobSearchParams!) {
-        jobs(searchParams: $searchParams) {
-          jobs {
-            id
-            title
-            description
-            createdOn
-            budget {
-              amount
-              currency
-            }
-            client {
-              uid
-              name
-              feedback
-              country
-              totalSpent
-              totalHires
-            }
-            skills
-            category
-            subcategory
-            jobType
+// ✅ GRAPHQL FALLBACK
+async function fetchGraphQLJobs(accessToken: string) {
+  console.log('🔄 Trying GraphQL API...')
+  
+  const query = `
+    query {
+      jobs(searchParams: { category2: "web-development", paging: { offset: 0, count: 10 } }) {
+        jobs {
+          uid
+          title
+          description
+          createdOn
+          budget {
+            amount
+            currency
           }
-        }
-      }
-    `
-
-    const variables = {
-      searchParams: {
-        q: keywords,
-        paging: {
-          offset: 0,
-          count: 20
+          client {
+            uid
+            name
+            feedback
+          }
+          skills
         }
       }
     }
+  `
 
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
+  const response = await fetch('https://api.upwork.com/graphql', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ query })
+  })
+
+  const result = await response.json()
+  return (result.data?.jobs?.jobs || []).map((job: any) => ({
+    id: job.uid,
+    title: job.title,
+    description: job.description,
+    budget: job.budget ? `${job.budget.amount} ${job.budget.currency}` : 'Not specified',
+    postedDate: new Date(job.createdOn).toLocaleDateString(),
+    client: { name: job.client?.name || 'Client', rating: 4.5, country: '', totalSpent: 0, totalHires: 0 },
+    skills: job.skills || [],
+    proposals: 0,
+    verified: false,
+    isRealJob: true
+  }))
+}
+
+// ✅ REST API FALLBACK
+async function fetchRESTJobs(accessToken: string) {
+  console.log('🔄 Trying REST API v2...')
+  
+  const response = await fetch(
+    'https://www.upwork.com/api/profiles/v2/search/jobs.json?q=web+development',
+    {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
         'Accept': 'application/json'
-      },
-      body: JSON.stringify({ query, variables })
-    })
-
-    if (!response.ok) {
-      throw new Error(`GraphQL error: ${response.status}`)
+      }
     }
+  )
 
-    const result = await response.json()
-    
-    if (result.errors) {
-      console.error('GraphQL errors:', result.errors)
-      throw new Error('GraphQL query failed')
-    }
-
-    const jobs = result.data?.jobs?.jobs || []
-    console.log(`✅ GraphQL returned ${jobs.length} jobs`)
-    
-    return jobs.map((job: any) => ({
-      id: job.id,
-      title: job.title,
-      description: job.description || '',
-      budget: job.budget ? 
-        `${job.budget.amount} ${job.budget.currency}` : 
-        'Budget not specified',
-      postedDate: new Date(job.createdOn).toLocaleString(),
-      client: {
-        name: job.client?.name || 'Client',
-        rating: job.client?.feedback || 0,
-        country: job.client?.country || 'Not specified',
-        totalSpent: job.client?.totalSpent || 0,
-        totalHires: job.client?.totalHires || 0
-      },
-      skills: job.skills || [],
-      proposals: 0,
-      verified: false,
-      category: job.category || 'Web Development',
-      duration: job.jobType || 'Not specified',
-      source: 'upwork_graphql',
-      isRealJob: true
-    }))
-  } catch (error) {
-    console.error('❌ GraphQL failed:', error)
-    throw error
-  }
+  const data = await response.json()
+  return (data.jobs || []).map((job: any) => ({
+    id: job.uid || job.id,
+    title: job.title,
+    description: job.description,
+    budget: job.budget ? `${job.budget.amount} ${job.budget.currency}` : 'Not specified',
+    postedDate: new Date(job.created_on || Date.now()).toLocaleDateString(),
+    client: {
+      name: job.client?.name || 'Client',
+      rating: job.client?.feedback || 4.5,
+      country: job.client?.country || '',
+      totalSpent: 0,
+      totalHires: 0
+    },
+    skills: job.skills || [],
+    proposals: job.proposals || 0,
+    verified: job.verified || false,
+    isRealJob: true
+  }))
 }
 
 // FALLBACK - REST API if GraphQL fails
