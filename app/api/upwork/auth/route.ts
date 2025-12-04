@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     }
 
     const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI || 'https://shameelnasir.com/upwork/oauth/callback'
+    const redirectUri = process.env.UPWORK_REDIRECT_URI || 'https://updash.shameelnasir.com/api/upwork/callback'
     
     if (!clientId) {
       return NextResponse.json({ 
