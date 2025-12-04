@@ -34,91 +34,140 @@ export default function Sidebar({
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'Prompts', href: '/dashboard/prompts', icon: '⚡' },
-      { name: 'History', href: '/dashboard/history', icon: '📝' }, 
+    { name: 'History', href: '/dashboard/history', icon: '📝' }, 
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
   const isActive = (path: string) => pathname === path
 
   // Check Upwork connection status
-useEffect(() => {
-  const checkConnection = async () => {
-    try {
-      const response = await fetch('/api/upwork/status')
-      if (response.ok) {
-        const data = await response.json()
-        setUpworkConnected(data.connected)
-        setConnectionStatus(data.connected ? 'connected' : 'idle')
-        
-        if (data.connected) {
-          console.log('✅ Upwork connected from status check')
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const response = await fetch('/api/upwork/status')
+        if (response.ok) {
+          const data = await response.json()
+          setUpworkConnected(data.connected)
+          setConnectionStatus(data.connected ? 'connected' : 'idle')
+          
+          if (data.connected) {
+            console.log('✅ Upwork connected')
+          }
         }
+      } catch (error) {
+        console.error('Connection check error:', error)
+        setUpworkConnected(false)
+        setConnectionStatus('error')
       }
-    } catch (error) {
-      console.error('Connection check error:', error)
-      setUpworkConnected(false)
-      setConnectionStatus('error')
     }
-  }
-  
-  checkConnection()
-  
-  // Check every 10 seconds
-  const interval = setInterval(checkConnection, 10000)
-  return () => clearInterval(interval)
-}, [])
+    
+    checkConnection()
+    
+    // Also check URL for success parameter
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('upwork_connected') === 'true') {
+      setUpworkConnected(true)
+      setConnectionStatus('connected')
+      // Clear the URL parameter
+      window.history.replaceState({}, '', '/dashboard')
+    }
+    
+    // Check every 30 seconds
+    const interval = setInterval(checkConnection, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
-const handleConnectUpwork = async () => {
-  setConnecting(true)
-  setConnectionStatus('connecting')
-  
-  try {
-    // Step 1: Get OAuth URL
-    const response = await fetch('/api/upwork/auth')
-    const data = await response.json()
+  // New: Better connection handler with popup
+  const handleConnectUpwork = async () => {
+    setConnecting(true)
+    setConnectionStatus('connecting')
+    
+    try {
+      // Get OAuth URL
+      const response = await fetch('/api/upwork/auth')
+      const data = await response.json()
 
-    if (response.ok && data.success && data.url) {
+      if (!response.ok || !data.success || !data.url) {
+        throw new Error(data.error || 'Failed to get OAuth URL')
+      }
+
       console.log('✅ OAuth URL generated:', data.url)
       
-      // Open Upwork auth in new tab
-      window.open(data.url, '_blank', 'noopener,noreferrer')
+      // Open Upwork auth in popup window
+      const width = 600
+      const height = 700
+      const left = window.screen.width / 2 - width / 2
+      const top = window.screen.height / 2 - height / 2
       
-      // Check for connection after 5 seconds
-      setTimeout(async () => {
+      const popup = window.open(
+        data.url,
+        'upwork_auth',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+      )
+      
+      if (!popup) {
+        throw new Error('Popup blocked. Please allow popups for this site.')
+      }
+
+      // Check for connection status every second
+      const checkInterval = setInterval(async () => {
         try {
-          const statusRes = await fetch('/api/upwork/status')
-          if (statusRes.ok) {
-            const statusData = await statusRes.json()
-            if (statusData.connected) {
-              setUpworkConnected(true)
-              setConnectionStatus('connected')
-              alert('✅ Upwork connected successfully!')
+          if (popup.closed) {
+            clearInterval(checkInterval)
+            setConnecting(false)
+            
+            // Check if connection was successful
+            const statusRes = await fetch('/api/upwork/status')
+            if (statusRes.ok) {
+              const statusData = await statusRes.json()
+              if (statusData.connected) {
+                setUpworkConnected(true)
+                setConnectionStatus('connected')
+                alert('✅ Upwork connected successfully!')
+              } else {
+                setConnectionStatus('error')
+                alert('❌ Connection failed. Please try again.')
+              }
             }
           }
         } catch (error) {
-          console.error('Connection verification error:', error)
-        } finally {
-          setConnecting(false)
+          console.error('Popup check error:', error)
         }
-      }, 5000)
-    } else {
-      throw new Error(data.error || 'Failed to get OAuth URL')
+      }, 1000)
+      
+      // Timeout after 2 minutes
+      setTimeout(() => {
+        if (!popup.closed) {
+          popup.close()
+          clearInterval(checkInterval)
+          setConnecting(false)
+          setConnectionStatus('error')
+          alert('❌ Connection timed out. Please try again.')
+        }
+      }, 120000)
+      
+    } catch (error: any) {
+      console.error('❌ Connection error:', error)
+      setConnectionStatus('error')
+      setConnecting(false)
+      alert('❌ Failed to connect: ' + error.message)
     }
-  } catch (error: any) {
-    console.error('❌ Connection error:', error)
-    setConnectionStatus('error')
-    alert('❌ Failed to connect: ' + error.message)
-    setConnecting(false)
   }
-}
 
   const handleDisconnectUpwork = async () => {
     try {
-      setUpworkConnected(false)
-      setConnectionStatus('idle')
-      console.log('🔌 Upwork disconnected')
+      const response = await fetch('/api/upwork/disconnect', {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        setUpworkConnected(false)
+        setConnectionStatus('idle')
+        alert('✅ Upwork disconnected successfully')
+      }
     } catch (error) {
       console.error('Error disconnecting Upwork:', error)
+      alert('❌ Failed to disconnect')
     }
   }
 
@@ -178,8 +227,8 @@ const handleConnectUpwork = async () => {
               <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
               <p className="text-gray-300 text-sm mb-4">
                 {upworkConnected 
-                  ? 'Your Upwork account is connected and ready to use.' 
-                  : 'Connect your Upwork account to access real job data and send proposals directly.'
+                  ? '✅ Your Upwork account is connected and ready to use.' 
+                  : '🔗 Connect your Upwork account to access real job data and send proposals directly.'
                 }
               </p>
               
