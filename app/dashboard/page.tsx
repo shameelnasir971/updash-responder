@@ -63,8 +63,8 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-  checkAuth()
-  loadJobs()
+    checkAuth()
+    loadJobs()
     
     // Check for success message from Upwork connection
     const success = searchParams.get('success')
@@ -649,3 +649,5 @@ ${user?.name || 'Professional Freelancer'}`)
     </div>
   )
 }
+
+
