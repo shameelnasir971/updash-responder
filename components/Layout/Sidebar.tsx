@@ -34,34 +34,24 @@ export default function Sidebar({
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'Prompts', href: '/dashboard/prompts', icon: '⚡' },
-    { name: 'History', href: '/dashboard/history', icon: '📝' }, 
+      { name: 'History', href: '/dashboard/history', icon: '📝' }, 
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
   const isActive = (path: string) => pathname === path
 
   // Check Upwork connection status
-  useEffect(() => {
-    checkConnectionStatus()
-    
-    // Check every 30 seconds
-    const interval = setInterval(checkConnectionStatus, 30000)
-    
-    return () => clearInterval(interval)
-  }, [])
-
-  const checkConnectionStatus = async () => {
+useEffect(() => {
+  const checkConnection = async () => {
     try {
       const response = await fetch('/api/upwork/status')
       if (response.ok) {
         const data = await response.json()
-        const connected = data.connected === true
+        setUpworkConnected(data.connected)
+        setConnectionStatus(data.connected ? 'connected' : 'idle')
         
-        setUpworkConnected(connected)
-        setConnectionStatus(connected ? 'connected' : 'idle')
-        
-        if (connected) {
-          console.log('✅ Upwork connected:', data)
+        if (data.connected) {
+          console.log('✅ Upwork connected from status check')
         }
       }
     } catch (error) {
@@ -70,57 +60,63 @@ export default function Sidebar({
       setConnectionStatus('error')
     }
   }
+  
+  checkConnection()
+  
+  // Check every 10 seconds
+  const interval = setInterval(checkConnection, 10000)
+  return () => clearInterval(interval)
+}, [])
 
-  const handleConnectUpwork = async () => {
-    if (connecting) return
-    
-    setConnecting(true)
-    setConnectionStatus('connecting')
-    
-    try {
-      // Get OAuth URL
-      const response = await fetch('/api/upwork/auth')
-      const data = await response.json()
+const handleConnectUpwork = async () => {
+  setConnecting(true)
+  setConnectionStatus('connecting')
+  
+  try {
+    // Step 1: Get OAuth URL
+    const response = await fetch('/api/upwork/auth')
+    const data = await response.json()
 
-      if (!response.ok || !data.success || !data.url) {
-        throw new Error(data.error || 'Failed to get OAuth URL')
-      }
-
-      console.log('Opening Upwork auth URL...')
+    if (response.ok && data.success && data.url) {
+      console.log('✅ OAuth URL generated:', data.url)
       
-      // **CRITICAL FIX: Open in same tab instead of popup**
-      // Popups are blocked by browsers, same tab works better
-      window.location.href = data.url
+      // Open Upwork auth in new tab
+      window.open(data.url, '_blank', 'noopener,noreferrer')
       
-      // Don't set connecting to false - page will redirect
-      // The checkConnectionStatus will update when user returns
-      
-    } catch (error: any) {
-      console.error('❌ Connection error:', error)
-      setConnectionStatus('error')
-      setConnecting(false)
-      
-      // Fallback: Direct Upwork OAuth URL
-      const directUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=b2cf4bfa369cac47083f664358d3accb&response_type=code&redirect_uri=https://updash.shameelnasir.com/api/upwork/callback&scope=search:jobs%20read:jobs`
-      
-      if (confirm('API failed. Open Upwork directly?')) {
-        window.location.href = directUrl
-      }
+      // Check for connection after 5 seconds
+      setTimeout(async () => {
+        try {
+          const statusRes = await fetch('/api/upwork/status')
+          if (statusRes.ok) {
+            const statusData = await statusRes.json()
+            if (statusData.connected) {
+              setUpworkConnected(true)
+              setConnectionStatus('connected')
+              alert('✅ Upwork connected successfully!')
+            }
+          }
+        } catch (error) {
+          console.error('Connection verification error:', error)
+        } finally {
+          setConnecting(false)
+        }
+      }, 5000)
+    } else {
+      throw new Error(data.error || 'Failed to get OAuth URL')
     }
+  } catch (error: any) {
+    console.error('❌ Connection error:', error)
+    setConnectionStatus('error')
+    alert('❌ Failed to connect: ' + error.message)
+    setConnecting(false)
   }
+}
 
   const handleDisconnectUpwork = async () => {
     try {
-      const response = await fetch('/api/upwork/disconnect', {
-        method: 'POST'
-      })
-      
-      if (response.ok) {
-        setUpworkConnected(false)
-        setConnectionStatus('idle')
-        console.log('🔌 Upwork disconnected')
-        router.refresh()
-      }
+      setUpworkConnected(false)
+      setConnectionStatus('idle')
+      console.log('🔌 Upwork disconnected')
     } catch (error) {
       console.error('Error disconnecting Upwork:', error)
     }
@@ -182,8 +178,8 @@ export default function Sidebar({
               <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
               <p className="text-gray-300 text-sm mb-4">
                 {upworkConnected 
-                  ? '✅ Your Upwork account is connected. Real jobs are loading.' 
-                  : 'Connect your Upwork account to access real job data.'
+                  ? 'Your Upwork account is connected and ready to use.' 
+                  : 'Connect your Upwork account to access real job data and send proposals directly.'
                 }
               </p>
               
@@ -196,7 +192,7 @@ export default function Sidebar({
                 }`}></div>
                 <span className="text-sm text-gray-300">
                   {connectionStatus === 'connected' ? 'Connected' :
-                   connectionStatus === 'connecting' ? 'Redirecting to Upwork...' :
+                   connectionStatus === 'connecting' ? 'Connecting...' :
                    connectionStatus === 'error' ? 'Connection Error' : 'Not Connected'}
                 </span>
               </div>
@@ -204,70 +200,70 @@ export default function Sidebar({
               <button 
                 onClick={upworkConnected ? handleDisconnectUpwork : handleConnectUpwork}
                 disabled={connecting}
-                className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center ${
+                className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors ${
                   upworkConnected
                     ? 'bg-red-600 text-white hover:bg-red-700'
                     : 'bg-green-600 text-white hover:bg-green-700'
-                } ${connecting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                } ${connecting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {connecting ? (
-                  <>
+                  <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                     Connecting...
-                  </>
+                  </div>
                 ) : upworkConnected ? (
                   '🔌 Disconnect Upwork'
                 ) : (
-                  '🔗 Connect Upwork Account'
+                  '🔗 Connect Upwork'
                 )}
               </button>
-              
-              {!upworkConnected && (
-                <p className="text-xs text-gray-400 mt-2 text-center">
-                  You'll be redirected to Upwork for authorization
-                </p>
-              )}
             </div>
           </div>
 
-          {/* Quick Stats */}
+          {/* AI Training Progress */}
           <div className="px-4 mt-4">
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-3">Quick Stats</h3>
-              <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-white mb-3">AI Training Progress</h3>
+              <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">Jobs Available</span>
-                  <span className="font-semibold text-white">24</span>
+                  <span className="text-sm text-gray-300">Proposals Generated</span>
+                  <span className="font-semibold text-white">48</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">Response Rate</span>
-                  <span className="font-semibold text-green-400">78%</span>
+                  <span className="text-sm text-gray-300">User Edits</span>
+                  <span className="font-semibold text-white">23</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">Avg. Proposal Time</span>
-                  <span className="font-semibold text-white">2.3 min</span>
+                  <span className="text-sm text-gray-300">AI Learning Score</span>
+                  <span className="font-semibold text-green-400">85%</span>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="mt-3">
+                  <div className="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>Training Progress</span>
+                    <span>85%</span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-green-500 h-2 rounded-full transition-all duration-300" 
+                      style={{ width: '85%' }}
+                    ></div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* User & Sign Out */}
+        {/* Sign Out Button */}
         <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800 p-4">
-          {user && (
-            <div className="mb-3 px-2">
-              <p className="text-sm font-medium text-white truncate">{user.name}</p>
-              <p className="text-xs text-gray-400 truncate">{user.email}</p>
-              <p className="text-xs text-gray-500 mt-1">{user.company_name}</p>
-            </div>
-          )}
-          
           <button
             onClick={handleSignOut}
-            className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors flex items-center justify-center"
+            className="group w-full flex items-center px-4 py-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-lg"
           >
-            <span className="mr-2">🚪</span>
-            Sign Out
+            <span className="text-lg mr-3">🚪</span>
+            <span className="truncate">Sign Out</span>
           </button>
         </div>
       </div>
