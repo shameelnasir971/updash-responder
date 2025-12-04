@@ -6,12 +6,12 @@ import pool from '../../../lib/database'
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// SIMPLE UPWORK JOBS FETCH - PUBLIC API USE KAREIN
-async function fetchUpworkJobsPublic(accessToken: string) {
-  console.log('🔗 Fetching jobs from Upwork...')
+// REAL UPWORK JOBS FETCH
+async function fetchRealUpworkJobs(accessToken: string) {
+  console.log('🔗 Fetching real jobs from Upwork API...')
   
   try {
-    // PUBLIC UPWORK JOBS API (read-only)
+    // Upwork v3 API endpoint
     const response = await fetch('https://www.upwork.com/api/profiles/v3/search/jobs', {
       method: 'GET',
       headers: {
@@ -26,48 +26,63 @@ async function fetchUpworkJobsPublic(accessToken: string) {
     if (!response.ok) {
       const errorText = await response.text()
       console.error('❌ API error:', errorText)
-      throw new Error(`Upwork API error: ${response.status}`)
+      
+      // Try alternative endpoint
+      console.log('🔄 Trying alternative endpoint...')
+      const altResponse = await fetch('https://www.upwork.com/api/v3/profiles/search/jobs', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      })
+      
+      if (!altResponse.ok) {
+        throw new Error(`Upwork API error: ${response.status}`)
+      }
+      
+      const altData = await altResponse.json()
+      return transformJobs(altData.jobs || [])
     }
 
     const data = await response.json()
     console.log('✅ API response received')
     
-    // Check if jobs exist
-    const jobs = data.jobs || data.profiles || []
-    console.log(`✅ Found ${jobs.length} jobs`)
+    return transformJobs(data.jobs || data.profiles || [])
     
-    // Transform jobs to our format
-    return jobs.map((job: any, index: number) => ({
-      id: job.id || `job_${Date.now()}_${index}`,
-      title: job.title || `Job ${index + 1}`,
-      description: job.description || 'Job description not available',
-      budget: job.budget ? 
-        `$${job.budget.amount || 100} ${job.budget.currency || 'USD'}` : 
-        '$100 - $500',
-      postedDate: job.created_on ? 
-        new Date(job.created_on).toLocaleDateString() : 
-        new Date().toLocaleDateString(),
-      client: {
-        name: job.client?.name || 'Upwork Client',
-        rating: job.client?.feedback || 4.5,
-        country: job.client?.country || 'International',
-        totalSpent: job.client?.total_spent || 10000,
-        totalHires: job.client?.total_hires || 50
-      },
-      skills: job.skills || ['Web Development', 'JavaScript', 'React'],
-      proposals: job.proposals || Math.floor(Math.random() * 20),
-      verified: job.verified || true,
-      category: job.category || 'Web Development',
-      duration: job.duration || 'Ongoing',
-      source: 'upwork',
-      isRealJob: true
-    }))
-
   } catch (error: any) {
     console.error('❌ Fetch error:', error.message)
-    // Return mock jobs if API fails
-    return getMockJobs()
+    throw error
   }
+}
+
+// Transform jobs to our format
+function transformJobs(jobs: any[]) {
+  return jobs.map((job: any, index: number) => ({
+    id: job.id || job.job_id || `job_${Date.now()}_${index}`,
+    title: job.title || job.subject || `Job ${index + 1}`,
+    description: job.description || job.snippet || 'Job description not available',
+    budget: job.budget ? 
+      `$${job.budget.amount || job.budget.min || 100} - $${job.budget.max || 500} ${job.budget.currency || 'USD'}` : 
+      '$100 - $500',
+    postedDate: job.created_on || job.posted_date ? 
+      new Date(job.created_on || job.posted_date).toLocaleDateString() : 
+      new Date().toLocaleDateString(),
+    client: {
+      name: job.client?.name || job.client_name || 'Upwork Client',
+      rating: job.client?.feedback || job.feedback || 4.5,
+      country: job.client?.country || job.country || 'International',
+      totalSpent: job.client?.total_spent || job.total_spent || 10000,
+      totalHires: job.client?.total_hires || job.total_hires || 50
+    },
+    skills: job.skills || job.job_category || ['Web Development', 'JavaScript', 'React'],
+    proposals: job.proposals || job.proposals_count || Math.floor(Math.random() * 20),
+    verified: job.verified || true,
+    category: job.category || job.job_category || 'Web Development',
+    duration: job.duration || 'Ongoing',
+    source: 'upwork',
+    isRealJob: true
+  }))
 }
 
 // GET - Fetch jobs
@@ -96,13 +111,13 @@ export async function GET(request: NextRequest) {
       const accessToken = upworkResult.rows[0].access_token
       
       try {
-        jobs = await fetchUpworkJobsPublic(accessToken)
-        message = `✅ Loaded ${jobs.length} jobs from Upwork`
+        jobs = await fetchRealUpworkJobs(accessToken)
+        message = `✅ Loaded ${jobs.length} real jobs from Upwork`
         console.log(message)
-      } catch (error) {
-        console.error('❌ Failed to fetch from Upwork:', error)
+      } catch (error: any) {
+        console.error('❌ Failed to fetch from Upwork:', error.message)
         jobs = getMockJobs()
-        message = '✅ Showing sample jobs'
+        message = '✅ Showing sample jobs (Upwork API failed)'
       }
     } else {
       // Upwork not connected
@@ -124,7 +139,8 @@ export async function GET(request: NextRequest) {
       success: true,
       jobs: getMockJobs(),
       total: 5,
-      message: 'Showing sample jobs'
+      message: 'Showing sample jobs',
+      upworkConnected: false
     })
   }
 }
@@ -197,6 +213,7 @@ function getConnectPromptJob() {
     verified: true,
     category: "System",
     duration: "Instant",
-    isConnectPrompt: true
+    isConnectPrompt: true,
+    source: "system"
   }
 }

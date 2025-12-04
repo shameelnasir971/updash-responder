@@ -12,10 +12,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const clientId = "b2cf4bfa369cac47083f664358d3accb"  // ✅ HARDCODE KAREIN
-    const redirectUri = "https://updash.shameelnasir.com/api/upwork/callback"  // ✅ HARDCODE KAREIN
-    
+    const clientId = process.env.UPWORK_CLIENT_ID
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
 
+    if (!clientId || !redirectUri) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Server configuration error' 
+      }, { status: 500 })
+    }
 
     // UPWORK OAuth URL
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
@@ -24,8 +29,8 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
     
-    // ✅ CORRECT SCOPE - Aapke API key ke hisaab se
-    authUrl.searchParams.set('scope', '')
+    // ✅ CORRECT SCOPE - read jobs
+    authUrl.searchParams.set('scope', 'search:jobs')
     
     // Add state to identify user
     const state = `user_${user.id}_${Date.now()}`
@@ -34,14 +39,14 @@ export async function GET(request: NextRequest) {
     console.log('🔗 Generating Upwork OAuth URL...')
     console.log('Client ID:', clientId)
     console.log('Redirect URI:', redirectUri)
-    console.log('Scope: (empty - read-only)')
+    console.log('State:', state)
     
     return NextResponse.json({ 
       success: true,
       url: authUrl.toString(),
       message: 'Upwork OAuth URL generated'
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ OAuth error:', error)
     return NextResponse.json({ 
       success: false,

@@ -4,8 +4,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,31 +15,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI
-    
-    // Check if Upwork API is configured
-    const isConfigured = !!(clientId && redirectUri)
-
-    // Check if user has connected Upwork account
-    const upworkResult = await pool.query(
-      'SELECT * FROM upwork_accounts WHERE user_id = $1',
+    const result = await pool.query(
+      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-    
-    const hasConnectedAccount = upworkResult.rows.length > 0
+
+    const connected = result.rows.length > 0 && result.rows[0].access_token
 
     return NextResponse.json({ 
-      success: true,
-      configured: isConfigured,
-      connected: hasConnectedAccount,
-      message: hasConnectedAccount ? 'Upwork account connected' : 'Upwork account not connected'
+      connected,
+      message: connected ? 'Upwork connected' : 'Upwork not connected'
     })
-  } catch (error) {
-    console.error('Upwork status error:', error)
+  } catch (error: any) {
+    console.error('Status check error:', error)
     return NextResponse.json({ 
-      success: false,
-      error: 'Internal server error' 
-    }, { status: 500 })
+      connected: false,
+      error: error.message 
+    })
   }
 }

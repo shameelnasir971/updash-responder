@@ -48,22 +48,24 @@ useEffect(() => {
       if (response.ok) {
         const data = await response.json()
         setUpworkConnected(data.connected)
+        setConnectionStatus(data.connected ? 'connected' : 'idle')
         
-        // If connected, fetch a test job
         if (data.connected) {
-          const jobsResponse = await fetch('/api/jobs')
-          if (jobsResponse.ok) {
-            const jobsData = await jobsResponse.json()
-            console.log('✅ Upwork connected, job count:', jobsData.total)
-          }
+          console.log('✅ Upwork connected from status check')
         }
       }
     } catch (error) {
       console.error('Connection check error:', error)
+      setUpworkConnected(false)
+      setConnectionStatus('error')
     }
   }
   
   checkConnection()
+  
+  // Check every 10 seconds
+  const interval = setInterval(checkConnection, 10000)
+  return () => clearInterval(interval)
 }, [])
 
 const handleConnectUpwork = async () => {
@@ -78,8 +80,27 @@ const handleConnectUpwork = async () => {
     if (response.ok && data.success && data.url) {
       console.log('✅ OAuth URL generated:', data.url)
       
-      // Step 2: Open Upwork auth page in SAME tab
-      window.location.href = data.url
+      // Open Upwork auth in new tab
+      window.open(data.url, '_blank', 'noopener,noreferrer')
+      
+      // Check for connection after 5 seconds
+      setTimeout(async () => {
+        try {
+          const statusRes = await fetch('/api/upwork/status')
+          if (statusRes.ok) {
+            const statusData = await statusRes.json()
+            if (statusData.connected) {
+              setUpworkConnected(true)
+              setConnectionStatus('connected')
+              alert('✅ Upwork connected successfully!')
+            }
+          }
+        } catch (error) {
+          console.error('Connection verification error:', error)
+        } finally {
+          setConnecting(false)
+        }
+      }, 5000)
     } else {
       throw new Error(data.error || 'Failed to get OAuth URL')
     }
