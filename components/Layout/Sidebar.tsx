@@ -71,68 +71,34 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
+    // ✅ SIRF /api/upwork/auth ENDPOINT USE KAREIN
     const response = await fetch('/api/upwork/auth')
     const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      console.log('🔗 Opening Upwork OAuth URL:', data.url)
-      
-      // ✅ NEW WINDOW OPEN KAREIN (Upwork OAuth ke liye better hai)
-      const width = 600
-      const height = 700
-      const left = window.screen.width / 2 - width / 2
-      const top = window.screen.height / 2 - height / 2
-      
-      const authWindow = window.open(
-        data.url,
-        'Upwork OAuth',
-        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`
-      )
-      
-      // ✅ Poll for window close
-      const checkWindow = setInterval(() => {
-        if (authWindow?.closed) {
-          clearInterval(checkWindow)
-          
-          // ✅ Reload the page to check connection status
-          setTimeout(() => {
-            checkUpworkConnection()
-            window.location.reload()
-          }, 1000)
-        }
-      }, 500)
-      
+      // ✅ REAL UPWORK URL OPEN KAREIN
+      window.location.href = data.url
     } else {
-      throw new Error(data.error || 'Failed to get OAuth URL')
+      throw new Error(data.error || 'Failed to connect')
     }
-  } catch (error: any) {
-    console.error('❌ Error connecting Upwork:', error)
+  } catch (error) {
+    console.error('Error connecting Upwork:', error)
     setConnectionStatus('error')
-    alert(`❌ Failed to connect Upwork: ${error.message}`)
+    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
   } finally {
     setConnecting(false)
   }
 }
 
-// ✅ NEW FUNCTION: Check Upwork connection status
-const checkUpworkConnection = async () => {
-  try {
-    const response = await fetch('/api/upwork/status')
-    if (response.ok) {
-      const data = await response.json()
-      setUpworkConnected(data.connected)
-      
-      if (data.connected) {
-        setConnectionStatus('connected')
-        console.log('✅ Upwork connected successfully')
-      } else {
-        setConnectionStatus('idle')
-      }
+  const handleDisconnectUpwork = async () => {
+    try {
+      setUpworkConnected(false)
+      setConnectionStatus('idle')
+      console.log('🔌 Upwork disconnected')
+    } catch (error) {
+      console.error('Error disconnecting Upwork:', error)
     }
-  } catch (error) {
-    console.error('Connection check error:', error)
   }
-}
 
   return (
     <>
@@ -210,7 +176,7 @@ const checkUpworkConnection = async () => {
               </div>
 
               <button 
-                onClick={upworkConnected ? handleConnectUpwork : handleConnectUpwork}
+                onClick={upworkConnected ? handleDisconnectUpwork : handleConnectUpwork}
                 disabled={connecting}
                 className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors ${
                   upworkConnected
