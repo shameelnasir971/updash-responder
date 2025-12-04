@@ -67,30 +67,20 @@ export default function Dashboard() {
   loadJobs()
     
     // Check for success message from Upwork connection
-  const success = searchParams.get('success')
-  const reload = searchParams.get('reload')
-  
-  if (success === 'upwork_connected') {
-    console.log('✅ Upwork connection success detected')
+    const success = searchParams.get('success')
+    const error = searchParams.get('error')
     
-    // Update connection status immediately
-    setUpworkConnected(true)
-    
-    // Show success message
-    setTimeout(() => {
+    if (success === 'upwork_connected') {
       alert('✅ Upwork account connected successfully! Loading real jobs...')
-      // Reload jobs after a short delay
       setTimeout(() => {
         loadJobs()
       }, 1000)
-    }, 500)
-  }
-  
-  const error = searchParams.get('error')
-  if (error) {
-    setConnectionError(`Upwork connection failed: ${searchParams.get('message') || error}`)
-  }
-}, [searchParams])
+    }
+    
+    if (error) {
+      setConnectionError(`Upwork connection failed: ${searchParams.get('message') || error}`)
+    }
+  }, [searchParams])
 
   const checkAuth = async () => {
     try {
