@@ -1,4 +1,3 @@
-// app/api/upwork/auth/route.ts - UPDATED
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -25,17 +24,15 @@ export async function GET(request: NextRequest) {
 
     console.log('🎯 Generating OAuth URL for user:', user.email)
 
-    // ✅ CORRECT UPWORK OAUTH 2.0 URL WITH NEW SCOPES
+    // ✅ CORRECT SCOPES FOR GRAPHQL API
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
     
-    // ✅ FIXED LINE: Use the new approved scopes[citation:5]
-    // authUrl.searchParams.set('scope', 'r_lite r_jobs r_contract r_search')
-    authUrl.searchParams.set('scope', 'r_basic r_jobs')
-
+    // ✅ ONLY r_jobs SCOPE FOR GRAPHQL API
+    authUrl.searchParams.set('scope', 'r_jobs')
     
     // Add state to identify user
     const state = `user_${user.id}_${Date.now()}`
