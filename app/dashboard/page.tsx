@@ -99,48 +99,71 @@ export default function Dashboard() {
   }
 
   const loadJobs = async () => {
-    setJobsLoading(true)
-    setConnectionError('')
-    
-    try {
-      const response = await fetch('/api/jobs')
-      const data = await response.json()
+  setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    const response = await fetch('/api/jobs')
+    const data = await response.json()
 
-      if (response.ok) {
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        
-        // Update stats
-        const realJobs = data.jobs.filter((job: Job) => !job.isConnectPrompt)
-        const matchedJobs = realJobs.filter((job: Job) => 
-          job.isRealJob && !job.isConnectPrompt
-        ).length
+    if (response.ok) {
+      // ✅ REAL JOBS CHECK
+      const realJobs = data.jobs.filter((job: Job) => job.isRealJob)
+      
+      if (realJobs.length > 0) {
+        setJobs(realJobs)
+        setUpworkConnected(true)
         
         setStats(prev => ({
           ...prev,
-          totalJobs: data.total || 0,
-          matchedJobs: matchedJobs
+          totalJobs: realJobs.length,
+          matchedJobs: realJobs.length
         }))
         
-        console.log('✅ Loaded jobs:', {
-          total: data.total,
-          source: data.source,
-          message: data.message,
-          upworkConnected: data.upworkConnected
-        })
-        
+        console.log(`✅ Loaded ${realJobs.length} REAL Upwork jobs`)
       } else {
-        setJobs([])
-        setConnectionError(data.error || 'Failed to load jobs')
+        // If no real jobs, show connection prompt
+        setJobs([getConnectPromptJob()])
+        setUpworkConnected(false)
       }
-    } catch (error) {
-      console.error('Jobs loading error:', error)
-      setJobs([])
-      setConnectionError('Network error. Please try again.')
-    } finally {
-      setJobsLoading(false)
+      
+    } else {
+      setJobs([getConnectPromptJob()])
+      setConnectionError('Failed to load jobs')
     }
+  } catch (error) {
+    console.error('Jobs loading error:', error)
+    setJobs([getConnectPromptJob()])
+    setConnectionError('Network error')
+  } finally {
+    setJobsLoading(false)
   }
+}
+
+
+function getConnectPromptJob() {
+  return {
+    id: "connect_prompt",
+    title: "🔗 Connect Your Upwork Account",
+    description: "To view real Upwork job listings and send proposals, please connect your Upwork account. Click the 'Connect Upwork' button in the sidebar to get started.",
+    budget: "Free to connect",
+    postedDate: new Date().toLocaleString(),
+    client: {
+      name: "Upwork Platform",
+      rating: 5.0,
+      country: "Worldwide",
+      totalSpent: 0,
+      totalHires: 0
+    },
+    skills: ["Upwork", "Account Setup", "API Connection"],
+    proposals: 0,
+    verified: true,
+    category: "System",
+    duration: "Instant",
+    isConnectPrompt: true
+  }
+} 
+
 
   // Handle Generate Proposal Button Click
   const handleGenerateProposalClick = (job: Job) => {
@@ -648,4 +671,8 @@ ${user?.name || 'Professional Freelancer'}`)
       )}
     </div>
   )
+}
+
+function getConnectPromptJob(): Job {
+  throw new Error('Function not implemented.')
 }

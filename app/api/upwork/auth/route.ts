@@ -1,6 +1,4 @@
-
-
-// app/api/upwork/auth/route.ts - COMPLETELY UPDATED
+// app/api/upwork/auth/route.ts - COMPLETE NEW VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -15,43 +13,30 @@ export async function GET(request: NextRequest) {
     }
 
     const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI || 'https://updash.shameelnasir.com/api/upwork/callback'
     const scopes = process.env.UPWORK_SCOPES || 'r_basic r_work r_proposals r_jobs_browse'
     
     if (!clientId) {
       return NextResponse.json({ 
         success: false,
-        error: 'UPWORK_CLIENT_ID missing in environment variables' 
+        error: 'UPWORK_CLIENT_ID missing' 
       }, { status: 500 })
     }
 
-    console.log('🎯 Generating Upwork OAuth URL for user:', user.email)
+    // ✅ FIXED: SIMPLE OAuth URL (NO COMPLEX REDIRECT)
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&scope=${encodeURIComponent(scopes)}`
     
-    // ✅ FIXED: Correct Upwork OAuth 2.0 URL with proper scopes
-    const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
-    
-    authUrl.searchParams.set('client_id', clientId)
-    authUrl.searchParams.set('response_type', 'code')
-    authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', scopes) // ✅ NEW SCOPES
-    
-    // Add state for security
-    const state = Buffer.from(`user_${user.id}_${Date.now()}_${Math.random()}`).toString('base64')
-    authUrl.searchParams.set('state', state)
-
-    console.log('🔗 Generated URL:', authUrl.toString())
+    console.log('🎯 Upwork OAuth URL generated for user:', user.email)
     
     return NextResponse.json({ 
       success: true,
-      url: authUrl.toString(),
-      state: state,
-      message: 'Upwork OAuth URL generated successfully'
+      url: authUrl,
+      message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
-    console.error('❌ OAuth URL generation error:', error)
+    console.error('❌ OAuth error:', error)
     return NextResponse.json({ 
       success: false,
-      error: 'Internal server error: ' + error.message 
+      error: 'Internal server error' 
     }, { status: 500 })
   }
 }
