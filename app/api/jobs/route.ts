@@ -9,20 +9,6 @@ export const runtime = 'nodejs'
 // ✅ CORRECT: Fetch REAL Upwork jobs using GraphQL API
 async function fetchRealUpworkJobs(accessToken: string) {
 
-  console.log('🧪 Testing API call with token...')
-const testRes = await fetch('https://www.upwork.com/api/auth/v1/info.json', {
-  headers: { 'Authorization': `Bearer ${accessToken}` }
-})
-
-if (testRes.ok) {
-  const testData = await testRes.json()
-  console.log('✅ Token is valid. User info:', testData)
-} else {
-  console.error('❌ Token is invalid. Status:', testRes.status)
-  const errorText = await testRes.text()
-  console.error('Error details:', errorText.substring(0, 200))
-}
-
   try {
     console.log('🔗 Fetching REAL jobs from Upwork GraphQL API...')
     
