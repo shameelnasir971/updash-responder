@@ -98,77 +98,43 @@ export default function Dashboard() {
     }
   }
 
-const loadJobs = async () => {
+  const loadJobs = async () => {
   setJobsLoading(true)
   setConnectionError('')
   
   try {
-    // Pehle test karein ke connection sahi hai ya nahi
-    const testResponse = await fetch('/api/upwork/test')
-    const testData = await testResponse.json()
-    
-    console.log('🧪 Connection test:', testData)
-    
-    if (testData.connected && testData.tokenValid) {
-      // ✅ Connection sahi hai, ab jobs lo
-      const response = await fetch('/api/jobs')
-      const data = await response.json()
+    const response = await fetch('/api/jobs')
+    const data = await response.json()
 
-      if (response.ok) {
-        // Filter real jobs
-        const realJobs = data.jobs.filter((job: Job) => !job.isConnectPrompt)
+    if (response.ok) {
+      // ✅ REAL JOBS CHECK
+      const realJobs = data.jobs.filter((job: Job) => job.isRealJob)
+      
+      if (realJobs.length > 0) {
+        setJobs(realJobs)
+        setUpworkConnected(true)
         
-        if (realJobs.length > 0) {
-          setJobs(realJobs)
-          setUpworkConnected(true)
-          
-          setStats(prev => ({
-            ...prev,
-            totalJobs: realJobs.length,
-            matchedJobs: realJobs.length
-          }))
-          
-          console.log(`✅ Loaded ${realJobs.length} REAL Upwork jobs`)
-          
-          // Show success message
-          if (data.message) {
-            alert(data.message)
-          }
-        } else {
-          // No jobs found but connected
-          setJobs([{
-            id: "no_jobs_found",
-            title: "🔍 No Jobs Found",
-            description: "Your search didn't return any jobs. Try changing your search criteria or try a different keyword.",
-            budget: "N/A",
-            postedDate: new Date().toLocaleString(),
-            client: {
-              name: "Upwork",
-              rating: 0,
-              country: "Worldwide",
-              totalSpent: 0,
-              totalHires: 0
-            },
-            skills: ["Search", "Filters", "Keywords"],
-            proposals: 0,
-            verified: false,
-            isConnectPrompt: false
-          }])
-          setUpworkConnected(true)
-        }
+        setStats(prev => ({
+          ...prev,
+          totalJobs: realJobs.length,
+          matchedJobs: realJobs.length
+        }))
+        
+        console.log(`✅ Loaded ${realJobs.length} REAL Upwork jobs`)
       } else {
-        throw new Error(data.error || 'Failed to load jobs')
+        // If no real jobs, show connection prompt
+        setJobs([getConnectPromptJob()])
+        setUpworkConnected(false)
       }
+      
     } else {
-      // Connection issue
       setJobs([getConnectPromptJob()])
-      setUpworkConnected(false)
-      setConnectionError(testData.message || 'Upwork connection issue')
+      setConnectionError('Failed to load jobs')
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Jobs loading error:', error)
     setJobs([getConnectPromptJob()])
-    setConnectionError('Network error: ' + error.message)
+    setConnectionError('Network error')
   } finally {
     setJobsLoading(false)
   }
