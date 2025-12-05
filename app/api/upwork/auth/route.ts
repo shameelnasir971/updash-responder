@@ -1,4 +1,3 @@
-// app/api/upwork/auth/route.ts - FINAL SIMPLE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -22,8 +21,9 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
     
-    // ✅ SIMPLE URL WITHOUT SCOPE PARAMETER
-const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=r_jobs`    
+    // ✅ SIMPLE URL - SCOPE KE BINA
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
+    
     console.log('🔗 Simple OAuth URL:', authUrl)
     
     return NextResponse.json({ 
