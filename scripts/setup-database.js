@@ -107,7 +107,6 @@ async function setupDatabase() {
       )
     `);
     console.log('✅ User settings table created/verified');
-
     // Upwork accounts table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS upwork_accounts (

@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - COMPLETE NEW VERSION
+// app/api/upwork/auth/route.ts - FINAL WORKING VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -22,17 +22,21 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // ✅ FIXED: SIRF ALLOWED SCOPES USE KARO
-    const scopes = "r_basic r_work r_proposals r_jobs_browse"
+    // ✅ APPROVED SCOPE - Jaise screenshot main approve hua hai
+    const scopes = "r_basic"  // ✅ YEH WAHI SCOPE HAI JO APPROVE HUA HAI
     
-    // ✅ SIMPLE URL - NO COMPLEX STATE
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${encodeURIComponent(scopes)}`
+    const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
+    authUrl.searchParams.append('client_id', clientId)
+    authUrl.searchParams.append('response_type', 'code')
+    authUrl.searchParams.append('redirect_uri', redirectUri || '')
+    authUrl.searchParams.append('scope', scopes)
+    authUrl.searchParams.append('state', Buffer.from(user.id.toString()).toString('base64'))
     
-    console.log('🔗 Generated URL with scopes:', scopes)
+    console.log('🔗 Final OAuth URL:', authUrl.toString())
     
     return NextResponse.json({ 
       success: true,
-      url: authUrl,
+      url: authUrl.toString(),
       message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
