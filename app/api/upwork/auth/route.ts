@@ -21,10 +21,17 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
     
-    // ✅ SIMPLE URL - SCOPE KE BINA
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
+    // ✅ CORRECT OAUTH URL WITH JOBS SCOPES
+    const scopes = [
+      'hr',
+      'jobs_basic',
+      'jobs_search',
+      'search_jobs'
+    ].join(' ')
     
-    console.log('🔗 Simple OAuth URL:', authUrl)
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${encodeURIComponent(scopes)}&state=${user.id}`
+    
+    console.log('🔗 OAuth URL with jobs scopes:', authUrl)
     
     return NextResponse.json({ 
       success: true,
