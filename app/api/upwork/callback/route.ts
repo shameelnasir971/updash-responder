@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         redirect_uri: redirectUri,
         client_id: clientId,
         client_secret: clientSecret,
+        scope: 'r_jobs'
       })
     })
 
