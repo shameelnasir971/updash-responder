@@ -84,8 +84,7 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', 'r_basic r_work r_jobs r_proposals r_manage')
-    
+    authUrl.searchParams.set('scope', 'r_jobs')      
     const state = Buffer.from(Date.now().toString()).toString('base64')
     authUrl.searchParams.set('state', state)
 

@@ -23,8 +23,7 @@ export async function GET(request: NextRequest) {
     }
     
     // ✅ SIMPLE URL WITHOUT SCOPE PARAMETER
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
-    
+const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=r_jobs`    
     console.log('🔗 Simple OAuth URL:', authUrl)
     
     return NextResponse.json({ 
