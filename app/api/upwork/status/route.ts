@@ -1,12 +1,12 @@
 
 // app/api/upwork/status/route.ts
 
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,25 +15,44 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI
-    
-    // Check if Upwork API is configured
-    const isConfigured = !!(clientId && redirectUri)
-
     // Check if user has connected Upwork account
     const upworkResult = await pool.query(
-      'SELECT * FROM upwork_accounts WHERE user_id = $1',
+      'SELECT access_token, created_at FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
     
     const hasConnectedAccount = upworkResult.rows.length > 0
+    let tokenValid = false
+    
+    // Test the token if exists
+    if (hasConnectedAccount) {
+      const accessToken = upworkResult.rows[0].access_token
+      try {
+        const testResponse = await fetch('https://api.upwork.com/graphql', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            query: '{ graphql { jobs { search(first: 1) { totalCount } } } }' 
+          })
+        })
+        
+        tokenValid = testResponse.ok
+      } catch (error) {
+        tokenValid = false
+      }
+    }
 
     return NextResponse.json({ 
       success: true,
-      configured: isConfigured,
+      configured: true,
       connected: hasConnectedAccount,
-      message: hasConnectedAccount ? 'Upwork account connected' : 'Upwork account not connected'
+      tokenValid: tokenValid,
+      message: hasConnectedAccount ? 
+        (tokenValid ? 'Upwork account connected & token valid' : 'Upwork connected but token expired') : 
+        'Upwork account not connected'
     })
   } catch (error) {
     console.error('Upwork status error:', error)

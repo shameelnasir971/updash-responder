@@ -1,10 +1,12 @@
+//app/api/upwork/auth/route.ts
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -21,10 +23,13 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
     
-    // ✅ SIMPLE URL - SCOPE KE BINA
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
+    // ✅ CORRECT SCOPES FOR JOBS ACCESS
+    const scopes = encodeURIComponent('r_worksearch r_jobs')
     
-    console.log('🔗 Simple OAuth URL:', authUrl)
+    // ✅ CORRECT OAUTH URL WITH SCOPES
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${scopes}`
+    
+    console.log('🔗 Correct OAuth URL with scopes generated')
     
     return NextResponse.json({ 
       success: true,
