@@ -22,16 +22,10 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // ✅ CORRECT: Sirf job read ki scopes
-    const scopes = [
-      'r_jobs',        // Job postings read
-      'r_work',        // Work/deliverables read
-    ].join(' ')
+    // ✅ SIMPLE URL WITHOUT SCOPE PARAMETER
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
     
-    // ✅ CORRECT URL with only necessary scopes
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${encodeURIComponent(scopes)}`
-    
-    console.log('🔗 Correct OAuth URL with minimal scopes:', authUrl)
+    console.log('🔗 Simple OAuth URL:', authUrl)
     
     return NextResponse.json({ 
       success: true,
