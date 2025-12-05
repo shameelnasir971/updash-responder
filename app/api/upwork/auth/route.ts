@@ -1,7 +1,4 @@
-//app/api/upwork/auth/route.ts
-
-// app/api/upwork/auth/route.ts - CORRECT VERSION
-
+// app/api/upwork/auth/route.ts - MINIMAL SCOPE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -25,20 +22,18 @@ export async function GET() {
       }, { status: 500 })
     }
     
-    // ✅ TRY ONLY THESE SCOPES (Your approved permissions)
-    // 1. 'r_jobs' - For "Read marketplace Job Postings"
-    // 2. 'r_basic' - For basic info
-    const scopes = encodeURIComponent('r_jobs r_basic')
+    // ✅ ONLY BASIC SCOPE - jo definitely allowed hai
+    const scopes = encodeURIComponent('r_basic')
     
-    // ✅ Build OAuth URL
+    // ✅ OAuth URL with only basic scope
     const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${scopes}`
     
-    console.log('🔗 OAuth URL with approved scopes:', authUrl)
+    console.log('🔗 Minimal OAuth URL:', authUrl)
     
     return NextResponse.json({ 
       success: true,
       url: authUrl,
-      message: 'Upwork OAuth URL generated'
+      message: 'Upwork OAuth URL generated with basic scope'
     })
   } catch (error: any) {
     console.error('OAuth error:', error)
