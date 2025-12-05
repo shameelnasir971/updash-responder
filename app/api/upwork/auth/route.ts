@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - FINAL FIXED VERSION
+// app/api/upwork/auth/route.ts - FINAL WORKING VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -22,22 +22,22 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // ✅ SOLUTION: SCOPE PARAMETER HATA DO - Upwork auto-detect karega approved scopes
-    // Koi bhi scope parameter mat bhejo
+    // ✅ APPROVED SCOPE - Jaise screenshot main approve hua hai
+    const scopes = "r_basic"  // ✅ YEH WAHI SCOPE HAI JO APPROVE HUA HAI
+    
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     authUrl.searchParams.append('client_id', clientId)
     authUrl.searchParams.append('response_type', 'code')
     authUrl.searchParams.append('redirect_uri', redirectUri || '')
+    authUrl.searchParams.append('scope', scopes)
+    authUrl.searchParams.append('state', Buffer.from(user.id.toString()).toString('base64'))
     
-    // ✅ SCOPE PARAMETER COMPLETELY REMOVE - This is the fix!
-    // authUrl.searchParams.append('scope', 'r_basic') // ❌ YEH MAT KARO
-    
-    console.log('✅ Generated OAuth URL WITHOUT scope parameter')
+    console.log('🔗 Final OAuth URL:', authUrl.toString())
     
     return NextResponse.json({ 
       success: true,
       url: authUrl.toString(),
-      message: 'Upwork OAuth URL generated (scope auto-detected)'
+      message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
     console.error('OAuth error:', error)
