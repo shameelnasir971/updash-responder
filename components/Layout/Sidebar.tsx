@@ -67,27 +67,58 @@ useEffect(() => {
 }, [])
 
 const handleConnectUpwork = async () => {
-  setConnecting(true);
-  setConnectionStatus('connecting');
-
+  setConnecting(true)
+  setConnectionStatus('connecting')
+  
   try {
-    const response = await fetch('/api/upwork/auth');
-    const data = await response.json();
+    // ✅ First check if Upwork is configured
+    const statusResponse = await fetch('/api/upwork/status')
+    const statusData = await statusResponse.json()
+    
+    if (!statusData.configured) {
+      throw new Error('Upwork API not configured. Please check environment variables.')
+    }
+
+    // ✅ Get OAuth URL
+    const response = await fetch('/api/upwork/auth')
+    const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      // ✅ CRITICAL: Redirect the MAIN window, don't open a popup
-      window.location.href = data.url;
+      console.log('🔗 Opening Upwork OAuth URL:', data.url)
+      
+      // ✅ Open Upwork authorization in new tab
+      window.open(data.url, '_blank', 'noopener,noreferrer')
+      
+      // ✅ Poll for connection status
+      const checkConnection = setInterval(async () => {
+        const checkResponse = await fetch('/api/upwork/status')
+        const checkData = await checkResponse.json()
+        
+        if (checkData.connected) {
+          clearInterval(checkConnection)
+          setConnectionStatus('connected')
+          setUpworkConnected(true)
+          alert('✅ Upwork account connected successfully!')
+          window.location.reload() // Refresh to load jobs
+        }
+      }, 2000)
+      
+      // Stop polling after 60 seconds
+      setTimeout(() => {
+        clearInterval(checkConnection)
+      }, 60000)
+      
     } else {
-      throw new Error(data.error || 'Failed to get OAuth URL');
+      throw new Error(data.error || 'Failed to get OAuth URL')
     }
   } catch (error) {
-    console.error('Error connecting Upwork:', error);
-    setConnectionStatus('error');
-    alert('❌ Failed to connect Upwork: ' + (error as Error).message);
-    setConnecting(false); // Only reset if error happens before redirect
+    console.error('❌ Error connecting Upwork:', error)
+    setConnectionStatus('error')
+    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
+  } finally {
+    setConnecting(false)
   }
-  // Note: No finally block here because page will redirect on success
-};
+}
 
   const handleDisconnectUpwork = async () => {
     try {
