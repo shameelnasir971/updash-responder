@@ -1,5 +1,3 @@
-///api/upwork/auth/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -23,23 +21,15 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
     
-    // ✅ CORRECT OAUTH URL WITH ALL REQUIRED SCOPES
-    const scopes = [
-      'r_jobs',           // Read jobs (MOST IMPORTANT)
-      'r_marketplace',    // Read marketplace
-      'r_workdiary',      // Read work diary
-      'r_workfeed',       // Read work feed
-      'r_myprofile'       // Read profile
-    ].join(' ')
+    // ✅ SIMPLE URL - SCOPE KE BINA
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
     
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${encodeURIComponent(scopes)}`
-    
-    console.log('🔗 OAuth URL with scopes:', authUrl)
+    console.log('🔗 Simple OAuth URL:', authUrl)
     
     return NextResponse.json({ 
       success: true,
       url: authUrl,
-      message: 'Upwork OAuth URL generated with job permissions'
+      message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
     console.error('OAuth error:', error)
