@@ -1,4 +1,4 @@
-// app/api/upwork/callback/route.ts - COMPLETE WORKING VERSION
+// app/api/upwork/callback/route.ts - FINAL VERSION WITH TEST
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '../../../../lib/database'
 
@@ -6,8 +6,6 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
-  console.log('🔄 Upwork callback initiated...')
-  
   try {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
@@ -15,183 +13,113 @@ export async function GET(request: NextRequest) {
     const errorDesc = searchParams.get('error_description')
     const state = searchParams.get('state')
 
-    console.log('📥 Callback parameters:', { 
-      hasCode: !!code, 
-      error, 
-      state: state ? 'Present' : 'Missing' 
+    console.log('🔄 Upwork Callback:', { 
+      hasCode: !!code,
+      error,
+      state: state ? Buffer.from(state, 'base64').toString() : 'No state'
     })
 
-    // ✅ Handle OAuth errors
     if (error) {
-      console.error('❌ Upwork OAuth error:', errorDesc || error)
-      return NextResponse.redirect(
-        'https://updash.shameelnasir.com/dashboard?error=' + 
-        encodeURIComponent(errorDesc || error) +
-        '&source=oauth_error'
-      )
+      console.error('❌ Upwork authorization error:', errorDesc || error)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(errorDesc || error))
     }
 
-    // ✅ Check for authorization code
     if (!code) {
-      console.error('❌ No authorization code received')
-      return NextResponse.redirect(
-        'https://updash.shameelnasir.com/dashboard?error=' + 
-        encodeURIComponent('No authorization code received. Please try connecting again.')
-      )
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No authorization code received')
     }
 
     console.log('✅ Authorization code received, exchanging for token...')
 
-    // ✅ Get environment variables
     const clientId = process.env.UPWORK_CLIENT_ID
     const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
 
     if (!clientId || !clientSecret) {
-      console.error('❌ Missing Upwork credentials')
-      throw new Error('Upwork API credentials (UPWORK_CLIENT_ID, UPWORK_CLIENT_SECRET) are not configured.')
+      throw new Error('Upwork credentials not configured')
     }
 
-    // ✅ Exchange code for access token
-    console.log('🔄 Exchanging code for access token...')
-    
-    const tokenParams = new URLSearchParams()
-    tokenParams.append('grant_type', 'authorization_code')
-    tokenParams.append('code', code)
-    tokenParams.append('redirect_uri', redirectUri)
-    tokenParams.append('client_id', clientId)
-    tokenParams.append('client_secret', clientSecret)
-
+    // ✅ Token Exchange
     const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: tokenParams
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        client_secret: clientSecret,
+      })
     })
-
-    const responseText = await tokenResponse.text()
-    console.log('📄 Token response status:', tokenResponse.status)
-    console.log('📄 Token response body (first 200 chars):', responseText.substring(0, 200))
 
     if (!tokenResponse.ok) {
-      console.error('❌ Token exchange failed:', responseText)
-      throw new Error(`Token exchange failed with status ${tokenResponse.status}: ${responseText}`)
+      const errorText = await tokenResponse.text()
+      console.error('❌ Token exchange failed:', tokenResponse.status, errorText)
+      throw new Error(`Token exchange failed: ${tokenResponse.status}`)
     }
 
-    const tokenData = JSON.parse(responseText)
-    
-    if (!tokenData.access_token) {
-      throw new Error('No access token received in response')
-    }
+    const tokenData = await tokenResponse.json()
+    console.log('✅ Token exchange successful')
+    console.log('🔐 Access token received:', tokenData.access_token ? 'Yes' : 'No')
 
-    console.log('✅ Token exchange successful!')
-    console.log('🔐 Token info:', {
-      hasAccessToken: !!tokenData.access_token,
-      hasRefreshToken: !!tokenData.refresh_token,
-      expiresIn: tokenData.expires_in || 'N/A'
-    })
-
-    // ✅ TEST: Verify token works by fetching user info
-    console.log('🧪 Testing token by fetching user info...')
-    
-    let upworkUserId = null
-    let upworkUserName = null
-    
+    // ✅ TEST: Fetch user info to verify connection works
     try {
-      const profileResponse = await fetch('https://www.upwork.com/api/auth/v1/info.json', {
+      console.log('🧪 Testing connection by fetching user info...')
+      const testResponse = await fetch('https://www.upwork.com/api/auth/v1/info.json', {
         headers: {
           'Authorization': `Bearer ${tokenData.access_token}`,
           'Accept': 'application/json'
         }
       })
-
-      if (profileResponse.ok) {
-        const profileData = await profileResponse.json()
-        upworkUserId = profileData.info?.reference
-        upworkUserName = profileData.info?.profile?.name
-        
-        console.log('✅ Token test successful!')
-        console.log('👤 Upwork user info:', { upworkUserId, upworkUserName })
+      
+      if (testResponse.ok) {
+        const userInfo = await testResponse.json()
+        console.log('✅ Connection test successful:', userInfo)
       } else {
-        console.warn('⚠️ Could not fetch profile, but token seems valid')
+        console.warn('⚠️ User info fetch failed but continuing')
       }
-    } catch (profileError) {
-      console.warn('⚠️ Profile fetch failed, but continuing:', profileError)
+    } catch (testError) {
+      console.warn('⚠️ Connection test skipped:', testError)
     }
 
-    // ✅ Get user ID (from state or default user)
+    // ✅ Get user ID from state or database
     let userId: number
-    
     if (state) {
       try {
-        // Decode state to get user ID
         userId = parseInt(Buffer.from(state, 'base64').toString())
-        console.log('👤 User ID from state:', userId)
       } catch {
-        console.warn('⚠️ Could not decode state, using default user')
-        // Fallback: Get first user from database
+        // Fallback to first user
         const users = await pool.query('SELECT id FROM users LIMIT 1')
         userId = users.rows[0]?.id
       }
     } else {
-      console.log('ℹ️ No state parameter, using default user')
       const users = await pool.query('SELECT id FROM users LIMIT 1')
       userId = users.rows[0]?.id
     }
 
     if (!userId) {
-      console.error('❌ No user found in database')
-      throw new Error('No user account found. Please sign up first.')
+      throw new Error('User not found in database')
     }
 
-    // ✅ Save tokens to database
-    console.log('💾 Saving tokens to database for user:', userId)
-    
-    try {
-      await pool.query(
-        `INSERT INTO upwork_accounts 
-         (user_id, access_token, refresh_token, upwork_user_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW())
-         ON CONFLICT (user_id) 
-         DO UPDATE SET 
-           access_token = $2, 
-           refresh_token = $3,
-           upwork_user_id = COALESCE($4, upwork_accounts.upwork_user_id),
-           updated_at = NOW()`,
-        [
-          userId, 
-          tokenData.access_token, 
-          tokenData.refresh_token || null,
-          upworkUserId
-        ]
-      )
-      
-      console.log('✅ Tokens saved successfully!')
-    } catch (dbError: any) {
-      console.error('❌ Database error:', dbError.message)
-      throw new Error(`Failed to save tokens to database: ${dbError.message}`)
-    }
+    // ✅ Save to database
+    await pool.query(
+      `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) 
+       DO UPDATE SET 
+         access_token = $2, 
+         refresh_token = $3,
+         updated_at = NOW()`,
+      [userId, tokenData.access_token, tokenData.refresh_token || '']
+    )
 
-    // ✅ Success - redirect to dashboard
-    console.log('🎉 Upwork connection completed successfully!')
-    
-    const successUrl = new URL('https://updash.shameelnasir.com/dashboard')
-    successUrl.searchParams.append('success', 'true')
-    successUrl.searchParams.append('message', 'Upwork account connected successfully!')
-    successUrl.searchParams.append('upwork_user', upworkUserName || 'User')
-    
-    return NextResponse.redirect(successUrl.toString())
+    console.log('✅ Upwork connection saved for user:', userId)
+
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=true&message=Upwork+connected+successfully')
 
   } catch (error: any) {
-    // ✅ Handle all errors gracefully
-    console.error('❌ Upwork callback error:', error)
-    
-    const errorUrl = new URL('https://updash.shameelnasir.com/dashboard')
-    errorUrl.searchParams.append('error', 'true')
-    errorUrl.searchParams.append('message', error.message || 'Unknown error during Upwork connection')
-    errorUrl.searchParams.append('source', 'callback_handler')
-    
-    return NextResponse.redirect(errorUrl.toString())
+    console.error('❌ Callback error:', error)
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(error.message || 'Unknown error'))
   }
 }

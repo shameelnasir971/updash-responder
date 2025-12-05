@@ -98,7 +98,7 @@ export default function Dashboard() {
     }
   }
 
-const loadJobs = async () => {
+  const loadJobs = async () => {
   setJobsLoading(true)
   setConnectionError('')
   
@@ -107,27 +107,22 @@ const loadJobs = async () => {
     const data = await response.json()
 
     if (response.ok) {
-      // ✅ Check if we got real Upwork jobs
-      if (data.source === 'upwork' && data.jobs.length > 0) {
-        setJobs(data.jobs)
+      // ✅ REAL JOBS CHECK
+      const realJobs = data.jobs.filter((job: Job) => job.isRealJob)
+      
+      if (realJobs.length > 0) {
+        setJobs(realJobs)
         setUpworkConnected(true)
-        console.log(`✅ Loaded ${data.jobs.length} REAL Upwork jobs`)
         
-        // Update stats
         setStats(prev => ({
           ...prev,
-          totalJobs: data.jobs.length,
-          matchedJobs: data.jobs.length
+          totalJobs: realJobs.length,
+          matchedJobs: realJobs.length
         }))
-      } 
-      // ✅ Check if we got demo jobs
-      else if (data.source === 'demo' && data.jobs.length > 0) {
-        setJobs(data.jobs)
-        setUpworkConnected(false)
-        console.log(`ℹ️ Showing ${data.jobs.length} demo jobs`)
-      }
-      // ✅ Show connect prompt
-      else {
+        
+        console.log(`✅ Loaded ${realJobs.length} REAL Upwork jobs`)
+      } else {
+        // If no real jobs, show connection prompt
         setJobs([getConnectPromptJob()])
         setUpworkConnected(false)
       }

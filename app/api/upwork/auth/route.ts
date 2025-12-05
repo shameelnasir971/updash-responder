@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - UPDATED & WORKING VERSION
+// app/api/upwork/auth/route.ts - FINAL SIMPLE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -13,27 +13,23 @@ export async function GET(request: NextRequest) {
     }
 
     const clientId = process.env.UPWORK_CLIENT_ID
-    const redirectUri = process.env.UPWORK_REDIRECT_URI // Ensure this is EXACTLY as registered
+    const redirectUri = process.env.UPWORK_REDIRECT_URI
     
-    if (!clientId || !redirectUri) {
+    if (!clientId) {
       return NextResponse.json({ 
         success: false,
-        error: 'Upwork API configuration missing.' 
+        error: 'UPWORK_CLIENT_ID missing' 
       }, { status: 500 })
     }
 
-    // ✅ USE THE CORRECT AUTHORIZATION ENDPOINT
-    const authUrl = new URL('https://www.upwork.com/api/auth/v1/oauth2/authorize')
-    authUrl.searchParams.append('client_id', clientId)
-    authUrl.searchParams.append('response_type', 'code')
-    authUrl.searchParams.append('redirect_uri', redirectUri)
-    // 🔴 DO NOT INCLUDE 'scope' PARAMETER
-
-    console.log('🔗 Generated OAuth URL (No Scope):', authUrl.toString())
+    // ✅ SIMPLE URL WITHOUT SCOPE PARAMETER
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
+    
+    console.log('🔗 Simple OAuth URL:', authUrl)
     
     return NextResponse.json({ 
       success: true,
-      url: authUrl.toString(),
+      url: authUrl,
       message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
