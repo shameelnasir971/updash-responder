@@ -71,50 +71,58 @@ const handleConnectUpwork = async () => {
   setConnectionStatus('connecting')
   
   try {
-    // ✅ First check if Upwork is configured
-    const statusResponse = await fetch('/api/upwork/status')
-    const statusData = await statusResponse.json()
-    
-    if (!statusData.configured) {
-      throw new Error('Upwork API not configured. Please check environment variables.')
-    }
-
-    // ✅ Get OAuth URL
+    // 1. Get OAuth URL WITHOUT scope parameter
     const response = await fetch('/api/upwork/auth')
     const data = await response.json()
 
     if (response.ok && data.success && data.url) {
-      console.log('🔗 Opening Upwork OAuth URL:', data.url)
+      console.log('🔗 Opening Upwork OAuth URL')
       
-      // ✅ Open Upwork authorization in new tab
-      window.open(data.url, '_blank', 'noopener,noreferrer')
+      // 2. Open Upwork in new window
+      const newWindow = window.open(data.url, '_blank', 'width=800,height=600')
       
-      // ✅ Poll for connection status
-      const checkConnection = setInterval(async () => {
-        const checkResponse = await fetch('/api/upwork/status')
-        const checkData = await checkResponse.json()
-        
-        if (checkData.connected) {
-          clearInterval(checkConnection)
-          setConnectionStatus('connected')
-          setUpworkConnected(true)
-          alert('✅ Upwork account connected successfully!')
-          window.location.reload() // Refresh to load jobs
+      if (!newWindow) {
+        alert('Popup blocked! Please allow popups for this site.')
+        return
+      }
+      
+      // 3. Poll for success
+      const checkSuccess = setInterval(async () => {
+        try {
+          const statusResponse = await fetch('/api/upwork/status')
+          const statusData = await statusResponse.json()
+          
+          if (statusData.connected) {
+            clearInterval(checkSuccess)
+            setConnectionStatus('connected')
+            setUpworkConnected(true)
+            
+            // Close popup
+            newWindow.close()
+            
+            // Show success message
+            alert('✅ Upwork connected successfully! Loading real jobs...')
+            
+            // Refresh page to load jobs
+            window.location.reload()
+          }
+        } catch (error) {
+          console.error('Status check error:', error)
         }
       }, 2000)
       
-      // Stop polling after 60 seconds
+      // Stop checking after 2 minutes
       setTimeout(() => {
-        clearInterval(checkConnection)
-      }, 60000)
+        clearInterval(checkSuccess)
+      }, 120000)
       
     } else {
       throw new Error(data.error || 'Failed to get OAuth URL')
     }
   } catch (error) {
-    console.error('❌ Error connecting Upwork:', error)
+    console.error('❌ Connection error:', error)
     setConnectionStatus('error')
-    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
+    alert('Connection error: ' + (error as Error).message)
   } finally {
     setConnecting(false)
   }
