@@ -98,43 +98,24 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async () => {
+const loadJobs = async () => {
   setJobsLoading(true)
-  setConnectionError('')
   
   try {
     const response = await fetch('/api/jobs')
     const data = await response.json()
 
     if (response.ok) {
-      // ✅ REAL JOBS CHECK
-      const realJobs = data.jobs.filter((job: Job) => job.isRealJob)
+      setJobs(data.jobs)
+      setUpworkConnected(data.upworkConnected)
       
-      if (realJobs.length > 0) {
-        setJobs(realJobs)
-        setUpworkConnected(true)
-        
-        setStats(prev => ({
-          ...prev,
-          totalJobs: realJobs.length,
-          matchedJobs: realJobs.length
-        }))
-        
-        console.log(`✅ Loaded ${realJobs.length} REAL Upwork jobs`)
-      } else {
-        // If no real jobs, show connection prompt
-        setJobs([getConnectPromptJob()])
-        setUpworkConnected(false)
+      // Show alert if connected
+      if (data.upworkConnected && data.message) {
+        console.log(data.message)
       }
-      
-    } else {
-      setJobs([getConnectPromptJob()])
-      setConnectionError('Failed to load jobs')
     }
   } catch (error) {
-    console.error('Jobs loading error:', error)
-    setJobs([getConnectPromptJob()])
-    setConnectionError('Network error')
+    console.error('Error:', error)
   } finally {
     setJobsLoading(false)
   }

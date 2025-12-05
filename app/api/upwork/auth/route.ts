@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - FINAL SIMPLE VERSION
+// app/api/upwork/auth/route.ts - UPDATED WITH CORRECT SCOPE
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -22,15 +22,19 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // ✅ SIMPLE URL WITHOUT SCOPE PARAMETER
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}`
+    // ✅ CORRECT: SIRF JOBS READ KI PERMISSION
+    const scope = 'r_jobs'  // YEH HI CHAHIYE!
     
-    console.log('🔗 Simple OAuth URL:', authUrl)
+    // ✅ CORRECT: Upwork OAuth URL with minimal scope
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${scope}`
+    
+    console.log('🔗 Simple OAuth URL with jobs scope:', authUrl)
     
     return NextResponse.json({ 
       success: true,
       url: authUrl,
-      message: 'Upwork OAuth URL generated'
+      scope: scope,
+      message: 'Upwork OAuth URL generated for jobs access only'
     })
   } catch (error: any) {
     console.error('OAuth error:', error)
