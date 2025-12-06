@@ -1,4 +1,6 @@
 // app/api/upwork/auth/route.ts - MINIMAL SCOPE VERSION
+// app/api/upwork/auth/route.ts - COMPLETE RESET
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -15,17 +17,17 @@ export async function GET() {
     const clientId = process.env.UPWORK_CLIENT_ID
     const redirectUri = process.env.UPWORK_REDIRECT_URI
     
-    if (!clientId) {
+    if (!clientId || !redirectUri) {
       return NextResponse.json({ 
         success: false,
-        error: 'UPWORK_CLIENT_ID missing' 
+        error: 'UPWORK_CLIENT_ID or REDIRECT_URI missing' 
       }, { status: 500 })
     }
     
-    // ✅ FINAL SOLUTION: BINA SCOPE PARAMETER KE REQUEST
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri || '')}`
+    // ✅ SIMPLEST OAUTH URL - NO SCOPES, NO EXTRA PARAMS
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`
     
-    console.log('🔗 OAuth URL (without scope):', authUrl)
+    console.log('🔗 SIMPLE OAuth URL:', authUrl)
     
     return NextResponse.json({ 
       success: true,
