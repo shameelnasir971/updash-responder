@@ -22,18 +22,15 @@ export async function GET() {
       }, { status: 500 })
     }
     
-    // ✅ ONLY BASIC SCOPE - jo definitely allowed hai
-    const scopes = encodeURIComponent('r_basic')
+    // ✅ FINAL SOLUTION: BINA SCOPE PARAMETER KE REQUEST
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri || '')}`
     
-    // ✅ OAuth URL with only basic scope
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri || '')}&scope=${scopes}`
-    
-    console.log('🔗 Minimal OAuth URL:', authUrl)
+    console.log('🔗 OAuth URL (without scope):', authUrl)
     
     return NextResponse.json({ 
       success: true,
       url: authUrl,
-      message: 'Upwork OAuth URL generated with basic scope'
+      message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
     console.error('OAuth error:', error)
