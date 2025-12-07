@@ -1,5 +1,4 @@
-// app/api/upwork/auth/route.ts - MINIMAL SCOPE VERSION
-// app/api/upwork/auth/route.ts - COMPLETE RESET
+// app/api/upwork/auth/route.ts 
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'

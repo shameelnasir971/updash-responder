@@ -104,26 +104,60 @@ const loadJobs = async () => {
   setConnectionError('')
   
   try {
-    const response = await fetch('/api/jobs')
+    const response = await fetch('/api/upwork/jobs') // ✅ CORRECT endpoint
     const data = await response.json()
+    
+    console.log('📊 Jobs API Response:', data) // Debugging ke liye
 
     if (data.success && Array.isArray(data.jobs)) {
-      // ✅ Check if jobs array has real data
       if (data.jobs.length > 0) {
+        // ✅ REAL JOBS mil gaye
         setJobs(data.jobs)
         setUpworkConnected(true)
+        console.log(`✅ ${data.jobs.length} real jobs loaded`)
+        
+        // Stats update karo
+        setStats(prev => ({
+          ...prev,
+          totalJobs: data.jobs.length,
+          matchedJobs: data.jobs.filter((j: Job) => 
+            j.title.toLowerCase().includes('web') || 
+            j.title.toLowerCase().includes('developer')
+          ).length
+        }))
       } else {
-        // Show connect prompt if no jobs
-        setJobs([getConnectPromptJob()])
-        setUpworkConnected(false)
+        // ❌ No jobs found
+        setJobs([{
+          id: "no_jobs_found",
+          title: "🔍 No Jobs Found",
+          description: "Try adjusting your filters or check if Upwork has available jobs in your category.",
+          budget: "N/A",
+          postedDate: new Date().toLocaleString(),
+          client: {
+            name: "Upwork",
+            rating: 0,
+            country: "",
+            totalSpent: 0,
+            totalHires: 0
+          },
+          skills: ["No jobs"],
+          proposals: 0,
+          verified: false,
+          category: "Info",
+          duration: "N/A",
+          isConnectPrompt: true
+        }])
+        setUpworkConnected(data.upworkConnected || false)
       }
     } else {
-      setJobs([getConnectPromptJob()])
+      throw new Error(data.error || 'Failed to load jobs')
     }
     
-  } catch (error) {
-    console.error('Error:', error)
+  } catch (error: any) {
+    console.error('❌ Load jobs error:', error)
+    setConnectionError(`Failed to load jobs: ${error.message}`)
     setJobs([getConnectPromptJob()])
+    setUpworkConnected(false)
   } finally {
     setJobsLoading(false)
   }
