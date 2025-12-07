@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - CORRECTED & WORKING
+// app/api/upwork/auth/route.ts - CORRECTED VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -22,35 +22,21 @@ export async function GET() {
       }, { status: 500 })
     }
     
-    // ✅ CORRECT & VERIFIED SCOPES for Job Search
-    // These are the official scope names for the permissions you selected.
-    const scopes = [
-      'r_jobs',           // Scope for "Job Postings - Read-Only Access"
-      'r_common'          // Scope for "Common Entities - Read-Only Access"
-    ].join(' ') // Formats to "r_jobs r_common"
+    // ✅ CORRECT SCOPES BASED ON YOUR API KEY
+    const scopes = "r_jobs r_mktplace_jobs r_common"
     
-    // ✅ CORRECT OAUTH 2.0 AUTHORIZATION URL
-    // Using the standard OAuth parameters as per Upwork's flow[citation:6].
-    const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
-    authUrl.searchParams.append('response_type', 'code')
-    authUrl.searchParams.append('client_id', clientId)
-    authUrl.searchParams.append('redirect_uri', redirectUri)
-    authUrl.searchParams.append('scope', scopes)
+    // ✅ CORRECT OAUTH URL (NO EXTRA PARAMS)
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}`
     
-    // Optional: Add a state parameter for security
-    const state = Buffer.from(Date.now().toString()).toString('base64')
-    authUrl.searchParams.append('state', state)
-
-    console.log('✅ Generated OAuth URL with scopes:', scopes)
+    console.log('🔗 OAuth URL with correct scopes:', authUrl)
     
     return NextResponse.json({ 
       success: true,
-      url: authUrl.toString(),
-      message: 'Upwork OAuth URL generated successfully'
+      url: authUrl,
+      message: 'Upwork OAuth URL generated'
     })
-    
   } catch (error: any) {
-    console.error('❌ OAuth setup error:', error)
+    console.error('OAuth error:', error)
     return NextResponse.json({ 
       success: false,
       error: error.message 
