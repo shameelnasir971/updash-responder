@@ -99,46 +99,56 @@ export default function Dashboard() {
   }
 
 
-// app/dashboard/page.tsx - UPDATED loadJobs function
+// app/dashboard/page.tsx 
 const loadJobs = async () => {
   setJobsLoading(true)
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs from Upwork...')
+    console.log('🔄 Loading real jobs...')
     const response = await fetch('/api/upwork/jobs')
     const data = await response.json()
 
-    console.log('📊 Jobs API Response:', data)
+    console.log('📊 Jobs Response:', {
+      success: data.success,
+      count: data.jobs?.length,
+      source: data.source,
+      message: data.message
+    })
 
     if (data.success) {
-      // ✅ REAL JOBS mil gaye ya empty array
       if (Array.isArray(data.jobs)) {
+        // ✅ REAL JOBS SET KARO
         setJobs(data.jobs)
         setUpworkConnected(data.upworkConnected)
         
         // Stats update
-        setStats(prev => ({
-          ...prev,
-          totalJobs: data.jobs.length,
-          matchedJobs: data.jobs.length // Sab jobs matched
-        }))
+        if (data.jobs.length > 0) {
+          setStats(prev => ({
+            ...prev,
+            totalJobs: data.jobs.length,
+            matchedJobs: data.jobs.filter((j: any) => 
+              j.title.toLowerCase().includes('web') || 
+              j.title.toLowerCase().includes('developer')
+            ).length
+          }))
+        }
         
-        console.log(`✅ ${data.jobs.length} jobs set in state`)
+        console.log(`✅ ${data.jobs.length} real jobs displayed`)
       }
       
-      if (data.error) {
-        setConnectionError(data.error)
+      if (data.message && data.jobs.length === 0) {
+        setConnectionError(data.message)
       }
     } else {
-      throw new Error(data.error || 'Failed to load jobs')
+      setConnectionError(data.error || 'Failed to load jobs')
+      setJobs([]) // Empty array
     }
     
   } catch (error: any) {
     console.error('❌ Load jobs error:', error)
-    setConnectionError(`Failed to load jobs: ${error.message}`)
-    setJobs([]) // ❌ NO MOCK JOBS - empty array
-    setUpworkConnected(false)
+    setConnectionError('Connection error. Please try again.')
+    setJobs([]) // Empty array
   } finally {
     setJobsLoading(false)
   }
