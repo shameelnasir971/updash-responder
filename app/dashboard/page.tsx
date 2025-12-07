@@ -99,38 +99,42 @@ export default function Dashboard() {
   }
 
 
-// app/dashboard/page.tsx - Always show real jobs
 const loadJobs = async () => {
   setJobsLoading(true)
   setConnectionError('')
   
   try {
+    console.log('🔄 Loading jobs...')
     const response = await fetch('/api/upwork/jobs')
     const data = await response.json()
 
-    console.log('📊 Jobs Response:', {
+    console.log('📊 Response:', {
+      success: data.success,
       count: data.jobs?.length,
       source: data.source,
       message: data.message
     })
 
     if (data.success) {
-      // ✅ ALWAYS SET JOBS (even if empty)
+      // ✅ REAL JOBS SET KARO
       setJobs(data.jobs)
       setUpworkConnected(data.upworkConnected)
       
-      // Update stats
+      // Stats update
       setStats({
         totalJobs: data.jobs.length,
         matchedJobs: data.jobs.length,
         proposalsSent: stats.proposalsSent,
         successRate: data.jobs.length > 0 ? 85 : 0
       })
+      
+      console.log(`✅ ${data.jobs.length} jobs set`)
     }
     
   } catch (error: any) {
     console.error('❌ Error:', error)
-    setJobs([]) // Empty array on error
+    setConnectionError('Connection issue')
+    setJobs([]) // Empty array
   } finally {
     setJobsLoading(false)
   }
