@@ -438,7 +438,6 @@ ${user?.name || 'Professional Freelancer'}`)
             </div>
 
             <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
-// app/dashboard/page.tsx - Updated job display
 {jobs.length === 0 ? (
   <div className="text-center py-12">
     <div className="text-gray-400 mb-4 text-6xl">
