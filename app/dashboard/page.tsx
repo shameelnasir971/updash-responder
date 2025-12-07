@@ -438,18 +438,19 @@ ${user?.name || 'Professional Freelancer'}`)
             </div>
 
             <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
+// app/dashboard/page.tsx - Updated job display
 {jobs.length === 0 ? (
   <div className="text-center py-12">
     <div className="text-gray-400 mb-4 text-6xl">
       {upworkConnected ? '🔍' : '🔗'}
     </div>
     <h3 className="text-lg font-semibold text-gray-700 mb-2">
-      {upworkConnected ? 'No Jobs Found' : 'Upwork Not Connected'}
+      {upworkConnected ? 'No Jobs Found' : 'Connect Upwork for Better Results'}
     </h3>
     <p className="text-gray-500 mb-6">
       {upworkConnected 
-        ? 'Try refreshing or check if there are active jobs on Upwork.'
-        : 'Connect your Upwork account to see real job listings.'}
+        ? 'Try refreshing or browse Upwork directly for current jobs.'
+        : 'Connect your Upwork account to access personalized job matches.'}
     </p>
     <div className="flex gap-3 justify-center">
       <button 
@@ -458,14 +459,12 @@ ${user?.name || 'Professional Freelancer'}`)
       >
         {upworkConnected ? '🔄 Refresh Jobs' : 'Connect Upwork'}
       </button>
-      {upworkConnected && (
-        <button 
-          onClick={() => window.open('https://www.upwork.com/nx/find-work/', '_blank')}
-          className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-        >
-          Browse Upwork Directly
-        </button>
-      )}
+      <button 
+        onClick={() => window.open('https://www.upwork.com/nx/find-work/', '_blank')}
+        className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+      >
+        Browse Upwork Directly
+      </button>
     </div>
   </div>
 ) : (
@@ -477,8 +476,12 @@ ${user?.name || 'Professional Freelancer'}`)
             <h3 className="font-semibold text-gray-900 text-lg">
               {job.title}
             </h3>
-            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
-              {job.source === 'upwork' ? 'Real Job' : 'Public Feed'}
+            <span className={`text-xs px-2 py-1 rounded-full ${
+              job.source === 'upwork_api' 
+                ? 'bg-blue-100 text-blue-800' 
+                : 'bg-green-100 text-green-800'
+            }`}>
+              {job.source === 'upwork_api' ? 'API Job' : 'Public Feed'}
             </span>
             {job.verified && (
               <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
@@ -491,8 +494,12 @@ ${user?.name || 'Professional Freelancer'}`)
             <span className="font-medium">{job.client.name}</span>
             <span className="mx-2">•</span>
             <span>{job.postedDate}</span>
-            <span className="mx-2">•</span>
-            <span>{job.client.country}</span>
+            {job.client.country && (
+              <>
+                <span className="mx-2">•</span>
+                <span>{job.client.country}</span>
+              </>
+            )}
           </div>
 
           <p className="text-gray-700 mb-4 line-clamp-2">{job.description}</p>
@@ -507,8 +514,8 @@ ${user?.name || 'Professional Freelancer'}`)
 
           <div className="flex items-center gap-4 text-sm text-gray-600">
             <span className="font-semibold text-green-700">{job.budget}</span>
-            <span>Proposals: {job.proposals}</span>
-            <span>Rating: {job.client.rating || 'N/A'}/5</span>
+            {job.proposals > 0 && <span>Proposals: {job.proposals}</span>}
+            {job.client.rating > 0 && <span>Rating: {job.client.rating}/5</span>}
             {job.category && <span>Category: {job.category}</span>}
           </div>
         </div>
