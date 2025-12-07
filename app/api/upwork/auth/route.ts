@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - FINAL CORRECT CODE
+// app/api/upwork/auth/route.ts - FINAL WORKING VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 
@@ -14,32 +14,30 @@ export async function GET() {
 
     const clientId = process.env.UPWORK_CLIENT_ID
     const redirectUri = process.env.UPWORK_REDIRECT_URI
-
+    
     if (!clientId || !redirectUri) {
-      return NextResponse.json({
+      return NextResponse.json({ 
         success: false,
-        error: 'UPWORK_CLIENT_ID or REDIRECT_URI missing'
+        error: 'UPWORK_CLIENT_ID or REDIRECT_URI missing' 
       }, { status: 500 })
     }
-
-    // ✅ YEH SAHI SCOPES STRING HAI. Yeh Upwork ko batata hai aap kya access chahte hain.
-    const scopes = "r_marketplace_jobs r_jobs r_common"
-
-    // ✅ YEH SAHI OAUTH URL HAI
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}`
-
-    console.log('✅ Correct OAuth URL generated.')
-
-    return NextResponse.json({
+    
+    // ✅ BASICS: Sirf client_id, response_type, aur redirect_uri use karo
+    // ✅ SCOPE PARAMETER BILKUL MAT BHEJO - Upwork apne aap configured scopes use karega
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
+    
+    console.log('✅ Simple OAuth URL generated (NO scope parameter):', authUrl)
+    
+    return NextResponse.json({ 
       success: true,
       url: authUrl,
-      message: 'Upwork OAuth URL generated with correct scopes'
+      message: 'Upwork OAuth URL generated'
     })
   } catch (error: any) {
     console.error('OAuth error:', error)
-    return NextResponse.json({
+    return NextResponse.json({ 
       success: false,
-      error: error.message
+      error: error.message 
     }, { status: 500 })
   }
 }
