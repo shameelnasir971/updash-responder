@@ -1,4 +1,4 @@
-// app/api/upwork/callback/route.ts - WITH DEBUGGING
+// app/api/upwork/callback/route.ts - DEBUG VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '../../../../lib/database'
 
@@ -10,44 +10,48 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
     const error = searchParams.get('error')
-    const state = searchParams.get('state')
+    const errorDescription = searchParams.get('error_description')
 
-    console.log('🔄 Upwork Callback DEBUG:', { 
-      code: code ? 'Present' : 'Missing',
-      error,
-      state 
-    })
+    console.log('=== UPWORK CALLBACK DEBUG START ===')
+    console.log('🔍 Received parameters:', { code: code ? 'Present' : 'Missing', error, errorDescription })
+    console.log('🔍 Full URL:', request.url)
 
-    // Agar error hai
+    // Agar error hai directly URL mein
     if (error) {
-      console.error('❌ Upwork authorization error:', error)
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(error))
+      console.error('❌ Upwork returned error:', { error, errorDescription })
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent(`OAuth Error: ${error} - ${errorDescription || 'No description'}`))
     }
 
     // Agar code nahi hai
     if (!code) {
-      console.error('❌ No authorization code')
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+authorization+code')
+      console.error('❌ No authorization code received')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+authorization+code+received')
     }
 
-    console.log('✅ Authorization code received:', code.substring(0, 20) + '...')
+    console.log('✅ Authorization code received (first 20 chars):', code.substring(0, 20) + '...')
 
+    // Environment variables check
     const clientId = process.env.UPWORK_CLIENT_ID
     const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
 
-    console.log('🔧 Config check:', {
-      clientId: clientId ? 'Present' : 'Missing',
-      clientSecret: clientSecret ? 'Present' : 'Missing',
+    console.log('🔧 Environment check:', {
+      clientId: clientId ? 'Present' : 'MISSING!',
+      clientSecret: clientSecret ? 'Present' : 'MISSING!',
       redirectUri
     })
 
     if (!clientId || !clientSecret) {
-      throw new Error('Upwork credentials not configured in Railway')
+      console.error('❌ CRITICAL: Client ID or Secret missing in Railway environment')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent('Server configuration error: API credentials missing'))
     }
 
-    // ✅ Token Exchange Request
+    // ✅ STEP 1: Exchange code for tokens
+    console.log('🔄 Exchanging code for access token...')
     const tokenUrl = 'https://www.upwork.com/api/v3/oauth2/token'
+    
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       code: code,
@@ -56,7 +60,7 @@ export async function GET(request: NextRequest) {
       client_secret: clientSecret,
     })
 
-    console.log('🔄 Token exchange request to:', tokenUrl)
+    console.log('📤 Token request to:', tokenUrl)
     
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
@@ -67,30 +71,48 @@ export async function GET(request: NextRequest) {
     })
 
     const responseText = await tokenResponse.text()
-    console.log('📊 Token response status:', tokenResponse.status)
-    console.log('📊 Token response body:', responseText.substring(0, 300))
+    console.log('📥 Token response status:', tokenResponse.status)
+    console.log('📥 Token response body:', responseText)
 
     if (!tokenResponse.ok) {
-      throw new Error(`Token exchange failed: ${tokenResponse.status} - ${responseText}`)
+      console.error('❌ TOKEN EXCHANGE FAILED!')
+      console.error('❌ Status:', tokenResponse.status)
+      console.error('❌ Response:', responseText)
+      
+      // Try to parse error
+      let errorMsg = 'Token exchange failed'
+      try {
+        const errorData = JSON.parse(responseText)
+        errorMsg = errorData.error || errorData.message || responseText.substring(0, 100)
+      } catch (e) {
+        errorMsg = responseText.substring(0, 100)
+      }
+      
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent(`Token error: ${errorMsg}`))
     }
 
+    // ✅ STEP 2: Parse successful response
     const tokenData = JSON.parse(responseText)
-    console.log('✅ Token exchange successful')
+    console.log('✅ Token exchange SUCCESSFUL!')
     console.log('🔑 Access token received:', tokenData.access_token ? 'Yes' : 'No')
     console.log('🔄 Refresh token:', tokenData.refresh_token ? 'Yes' : 'No')
-    console.log('📅 Expires in:', tokenData.expires_in, 'seconds')
+    console.log('⏳ Expires in:', tokenData.expires_in, 'seconds')
 
-    // ✅ Get first user from database (since only boss is using)
+    // ✅ STEP 3: Get user from database
+    console.log('💾 Saving token to database...')
     const users = await pool.query('SELECT id FROM users LIMIT 1')
     
     if (users.rows.length === 0) {
-      throw new Error('No user found in database. Please sign up first.')
+      console.error('❌ No user found in database')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent('No user account found. Please sign up first.'))
     }
 
     const userId = users.rows[0].id
-    console.log('👤 User ID for token storage:', userId)
+    console.log('👤 Found user ID:', userId)
 
-    // ✅ Save to database
+    // ✅ STEP 4: Save to database
     const insertQuery = `
       INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
       VALUES ($1, $2, $3, NOW())
@@ -102,31 +124,36 @@ export async function GET(request: NextRequest) {
       RETURNING id
     `
     
-    const result = await pool.query(insertQuery, [
-      userId, 
-      tokenData.access_token, 
-      tokenData.refresh_token || ''
-    ])
+    try {
+      const result = await pool.query(insertQuery, [
+        userId, 
+        tokenData.access_token, 
+        tokenData.refresh_token || ''
+      ])
+      console.log('💾 Token saved to database. Row ID:', result.rows[0]?.id)
+    } catch (dbError: any) {
+      console.error('❌ Database error:', dbError.message)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent(`Database error: ${dbError.message}`))
+    }
 
-    console.log('💾 Token saved to database, row ID:', result.rows[0]?.id)
-
-    // ✅ Verify token was saved
-    const verifyQuery = await pool.query(
+    // ✅ STEP 5: Verify save
+    const verifyResult = await pool.query(
       'SELECT COUNT(*) as count FROM upwork_accounts WHERE user_id = $1',
       [userId]
     )
     
-    console.log('✅ Token verification:', verifyQuery.rows[0].count, 'token(s) found')
+    console.log('✅ Verification:', verifyResult.rows[0].count, 'token(s) in database')
+    console.log('=== UPWORK CALLBACK DEBUG END ===')
 
-    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+successfully')
+    // ✅ FINAL SUCCESS
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+successfully!')
 
   } catch (error: any) {
-    console.error('❌ Callback error:', error.message)
-    console.error('❌ Callback stack:', error.stack)
+    console.error('❌ CALLBACK UNEXPECTED ERROR:', error.message)
+    console.error('❌ Stack trace:', error.stack)
     
-    return NextResponse.redirect(
-      'https://updash.shameelnasir.com/dashboard?error=' + 
-      encodeURIComponent(`Connection failed: ${error.message}`)
-    )
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+      encodeURIComponent(`Unexpected error: ${error.message}`))
   }
 }
