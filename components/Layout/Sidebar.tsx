@@ -48,13 +48,14 @@ useEffect(() => {
       if (response.ok) {
         const data = await response.json()
         setUpworkConnected(data.connected)
+        setConnectionStatus(data.connected ? 'connected' : 'idle')
         
-        // If connected, fetch a test job
+        // Agar connected hai, to test jobs fetch
         if (data.connected) {
-          const jobsResponse = await fetch('/api/jobs')
+          const jobsResponse = await fetch('/api/upwork/jobs')
           if (jobsResponse.ok) {
             const jobsData = await jobsResponse.json()
-            console.log('✅ Upwork connected, job count:', jobsData.total)
+            console.log('✅ Upwork connected, real job count:', jobsData.total)
           }
         }
       }
