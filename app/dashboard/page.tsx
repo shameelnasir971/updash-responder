@@ -83,21 +83,33 @@ export default function Dashboard() {
     }
   }, [searchParams])
 
-  const checkAuth = async () => {
-    try {
-      const response = await fetch('/api/auth')
-      if (response.ok) {
-        const userData = await response.json()
-        setUser(userData)
-      } else {
-        router.push('/auth/login')
-      }
-    } catch (error) {
-      router.push('/auth/login')
-    } finally {
-      setLoading(false)
+const checkAuth = async () => {
+  try {
+    const response = await fetch('/api/auth')
+    if (!response.ok) {
+      // ❌ REDIRECT MAT KARO
+      console.log('Auth check failed')
+      setUser(null)
+      return
     }
+    
+    const data = await response.json()
+    
+    if (data.authenticated && data.user) {
+      setUser(data.user)
+    } else {
+      setUser(null)
+      // ❌ REDIRECT MAT KARO - Dashboard pe hi raho
+      console.log('User not authenticated, staying on dashboard')
+    }
+  } catch (error) {
+    console.error('Auth error:', error)
+    setUser(null)
+    // ❌ REDIRECT MAT KARO
+  } finally {
+    setLoading(false)
   }
+}
 
 
 // app/dashboard/page.tsx - UPDATED loadJobs function

@@ -42,10 +42,8 @@ export default function Sidebar({
 useEffect(() => {
   const checkConnection = async () => {
     try {
-      // ✅ SIMPLE FETCH - NO AUTH REQUIRED
-      const response = await fetch('/api/upwork/status', {
-        credentials: 'include'
-      })
+      // ✅ SIMPLE FETCH - NO CREDENTIALS NEEDED
+      const response = await fetch('/api/upwork/status')
       
       if (response.ok) {
         const data = await response.json()
@@ -56,7 +54,7 @@ useEffect(() => {
         setConnectionStatus('idle')
       }
     } catch (error) {
-      console.log('Connection check failed')
+      console.log('Connection check silent fail')
       setUpworkConnected(false)
       setConnectionStatus('idle')
     }
@@ -64,6 +62,8 @@ useEffect(() => {
   
   checkConnection()
 }, [])
+
+
   const handleConnectUpwork = async () => {
     setConnecting(true)
     setConnectionStatus('connecting')

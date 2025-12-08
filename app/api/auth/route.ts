@@ -1,53 +1,106 @@
-// app/api/auth/route.ts - UPDATED SINGLE USER FIX
+// app/api/auth/route.ts - COMPLETE FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
 import pool from '../../../lib/database'
-import { createSession, getCurrentUser } from '../../../lib/auth'
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
 
-export async function GET() {
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+// ✅ HELPER FUNCTION: Create session WITHOUT redirect
+async function createSession(userId: number) {
+  const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' })
+  
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + 7)
+  
+  await pool.query(
+    'INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)',
+    [userId, token, expiresAt]
+  )
+
+  return token
+}
+
+// ✅ GET CURRENT USER WITHOUT REDIRECT
+async function getCurrentUserSafe() {
   try {
-    const user = await getCurrentUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    const cookieStore = cookies()
+    const token = cookieStore.get('session-token')?.value
+
+    if (!token) {
+      return null
     }
 
-    return NextResponse.json(user)
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number }
+    
+    const result = await pool.query(
+      'SELECT id, email, name, company_name FROM users WHERE id = $1',
+      [decoded.userId]
+    )
+    
+    return result.rows[0] || null
   } catch (error) {
-    console.error('Auth GET error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return null
   }
 }
 
+// ✅ GET: Check authentication status (NO REDIRECT)
+export async function GET() {
+  try {
+    const user = await getCurrentUserSafe()
+    
+    if (!user) {
+      // ❌ 401 MAT BHEJO - JSON response bhejo
+      return NextResponse.json({ 
+        authenticated: false,
+        error: 'Not authenticated' 
+      }, { status: 200 }) // ✅ STATUS 200 use karo
+    }
+
+    return NextResponse.json({
+      authenticated: true,
+      user: user
+    })
+  } catch (error) {
+    console.error('Auth GET error:', error)
+    return NextResponse.json({ 
+      authenticated: false,
+      error: 'Internal error' 
+    }, { status: 200 }) // ✅ STATUS 200
+  }
+}
+
+// ✅ POST: Login/Signup (NO REDIRECT)
 export async function POST(request: NextRequest) {
   try {
     const { action, email, password, name, company_name } = await request.json()
 
     if (!action || !email || !password) {
       return NextResponse.json({ 
-        error: 'Email and password are required' 
+        error: 'Email and password required' 
       }, { status: 400 })
     }
 
-    // ✅ SINGLE USER RESTRICTION - STRICTER CHECK
+    // ✅ SINGLE USER CHECK
     if (action === 'signup') {
       const existingUsers = await pool.query('SELECT COUNT(*) as count FROM users')
       const userCount = parseInt(existingUsers.rows[0].count)
       
       if (userCount > 0) {
         return NextResponse.json({ 
-          error: '❌ This application is for single user only. Please login with existing account.' 
-        }, { status: 403 })
+          error: 'This application is for single user only. Please login.' 
+        }, { status: 200 })
       }
     }
 
     if (action === 'signup') {
       if (!name) {
         return NextResponse.json({ 
-          error: 'Name is required for signup' 
+          error: 'Name required' 
         }, { status: 400 })
       }
 
@@ -58,7 +111,7 @@ export async function POST(request: NextRequest) {
       
       if (existingUser.rows.length > 0) {
         return NextResponse.json({ 
-          error: 'User with this email already exists' 
+          error: 'User already exists' 
         }, { status: 400 })
       }
 
@@ -72,22 +125,22 @@ export async function POST(request: NextRequest) {
       const user = result.rows[0]
       const token = await createSession(user.id)
 
-      cookies().set('session-token', token, {
+      // ✅ Set cookie WITHOUT redirect
+      const response = NextResponse.json({ 
+        success: true,
+        message: 'Account created',
+        user: user
+      })
+      
+      response.cookies.set('session-token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60
+        maxAge: 7 * 24 * 60 * 60,
+        path: '/'
       })
 
-      return NextResponse.json({ 
-        message: 'Account created successfully!', 
-        user: { 
-          id: user.id, 
-          name: user.name, 
-          email: user.email,
-          company_name: user.company_name
-        } 
-      })
+      return response
     }
 
     if (action === 'login') {
@@ -113,22 +166,27 @@ export async function POST(request: NextRequest) {
 
       const token = await createSession(user.id)
 
-      cookies().set('session-token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60
-      })
-
-      return NextResponse.json({ 
-        message: 'Login successful!', 
+      // ✅ Set cookie WITHOUT redirect
+      const response = NextResponse.json({ 
+        success: true,
+        message: 'Login successful',
         user: { 
           id: user.id, 
           name: user.name, 
           email: user.email,
           company_name: user.company_name
-        } 
+        }
       })
+      
+      response.cookies.set('session-token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60,
+        path: '/'
+      })
+
+      return response
     }
 
     return NextResponse.json({ 
@@ -143,6 +201,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// ✅ DELETE: Logout (NO REDIRECT)
 export async function DELETE() {
   try {
     const cookieStore = cookies()
@@ -152,15 +211,18 @@ export async function DELETE() {
       await pool.query('DELETE FROM sessions WHERE token = $1', [token])
     }
     
-    cookieStore.delete('session-token')
-    
-    return NextResponse.json({ 
-      message: 'Logged out successfully' 
+    const response = NextResponse.json({ 
+      success: true,
+      message: 'Logged out' 
     })
+    
+    response.cookies.delete('session-token')
+    
+    return response
   } catch (error) {
     console.error('Logout error:', error)
     return NextResponse.json({ 
-      error: 'Internal server error' 
+      error: 'Internal error' 
     }, { status: 500 })
   }
 }
