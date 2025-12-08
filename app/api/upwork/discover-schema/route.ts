@@ -1,4 +1,3 @@
-// app/api/upwork/discover-schema/route.ts - NEW FILE
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -28,29 +27,13 @@ export async function GET() {
 
     const accessToken = upworkResult.rows[0].access_token
 
-    // ✅ INTROSPECTION QUERY - Yeh schema discover karega
+    // SIMPLE INTROSPECTION QUERY
     const introspectionQuery = {
       query: `
-        query IntrospectionQuery {
+        query {
           __schema {
             queryType {
               name
-              fields {
-                name
-                description
-                type {
-                  name
-                  kind
-                  ofType {
-                    name
-                    kind
-                  }
-                }
-              }
-            }
-            types {
-              name
-              kind
               fields {
                 name
               }
@@ -60,26 +43,16 @@ export async function GET() {
       `
     }
 
-    console.log('🔍 Sending introspection query...')
+    console.log('🔍 Sending simple introspection query...')
     
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(introspectionQuery)
     })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      return NextResponse.json({
-        success: false,
-        error: `API error: ${response.status}`,
-        details: errorText
-      })
-    }
 
     const data = await response.json()
     
@@ -87,38 +60,22 @@ export async function GET() {
       return NextResponse.json({
         success: false,
         errors: data.errors,
-        message: 'Introspection query failed'
+        message: 'Introspection failed'
       })
     }
 
-    // Find all query fields
     const queryFields = data.data?.__schema?.queryType?.fields || []
     
-    // Find job-related types
-    const allTypes = data.data?.__schema?.types || []
-    const jobRelatedTypes = allTypes.filter((type: any) => 
-      type.name.toLowerCase().includes('job') || 
-      type.name.toLowerCase().includes('search') ||
-      type.name.toLowerCase().includes('marketplace')
-    )
-
     return NextResponse.json({
       success: true,
-      availableQueryFields: queryFields.map((f: any) => f.name),
-      jobRelatedTypes: jobRelatedTypes.map((t: any) => t.name),
-      sampleQueryField: queryFields.find((f: any) => 
-        f.name.toLowerCase().includes('job') || 
-        f.name.toLowerCase().includes('search')
-      ),
-      message: 'Schema discovery complete'
+      availableQueries: queryFields.map((f: any) => f.name),
+      message: 'Discovery complete. Look for job/search related queries.'
     })
 
   } catch (error: any) {
-    console.error('Discovery error:', error)
     return NextResponse.json({
       success: false,
-      error: error.message,
-      message: 'Failed to discover schema'
+      error: error.message
     })
   }
 }
