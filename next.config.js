@@ -1,3 +1,4 @@
+// next.config.js - COMPLETE NEW VERSION
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: {
@@ -6,8 +7,43 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // ✅ NO TRAILING SLASH - IMPORTANT
+  trailingSlash: false,
+  
+  // ✅ DISABLE ALL REDIRECTS IN CONFIG
+  async redirects() {
+    return []
+  },
+  
+  // ✅ DISABLE ALL REWRITES
+  async rewrites() {
+    return []
+  },
+  
+  // ✅ ADD SECURITY HEADERS
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff'
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY'
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block'
+          }
+        ]
+      }
+    ]
+  },
+  
   webpack: (config, { isServer }) => {
-    // ✅ Client-side pe 'pg' package resolve na kare
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,

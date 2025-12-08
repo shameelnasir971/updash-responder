@@ -1,106 +1,42 @@
+// components/Layout/Sidebar.tsx - SIMPLE VERSION
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
-import { useState, useEffect } from 'react'
-
-interface User {
-  id: number
-  name: string
-  email: string
-  company_name: string
-}
-
-interface SidebarProps {
-  sidebarOpen: boolean
-  setSidebarOpen: (open: boolean) => void
-  user: User | null
-  handleSignOut: () => void
-}
+import { useState } from 'react' // ✅ useEffect HATA DO
 
 export default function Sidebar({
   sidebarOpen,
   setSidebarOpen,
   user,
   handleSignOut
-}: SidebarProps) {
+}: any) {
   const router = useRouter()
   const pathname = usePathname()
-  const [upworkConnected, setUpworkConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle')
-
+  
+  // ✅ SIMPLE STATIC NAVIGATION
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
-    { name: 'Prompts', href: '/dashboard/prompts', icon: '⚡' },
     { name: 'History', href: '/dashboard/history', icon: '📝' },
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
-  const isActive = (path: string) => pathname === path
-
-  // ✅ SIMPLE CHECK - Database call remove karo
-useEffect(() => {
-  const checkConnection = async () => {
-    try {
-      // ✅ SIMPLE FETCH - NO CREDENTIALS NEEDED
-      const response = await fetch('/api/upwork/status')
-      
-      if (response.ok) {
-        const data = await response.json()
-        setUpworkConnected(data.connected || false)
-        setConnectionStatus(data.connected ? 'connected' : 'idle')
-      } else {
-        setUpworkConnected(false)
-        setConnectionStatus('idle')
-      }
-    } catch (error) {
-      console.log('Connection check silent fail')
-      setUpworkConnected(false)
-      setConnectionStatus('idle')
-    }
-  }
-  
-  checkConnection()
-}, [])
-
-
+  // ✅ SIMPLE HANDLE CONNECT - NO STATUS CHECK
   const handleConnectUpwork = async () => {
     setConnecting(true)
-    setConnectionStatus('connecting')
     
     try {
-      const response = await fetch('/api/upwork/auth')
-      const data = await response.json()
-
-      if (response.ok && data.success && data.url) {
-        console.log('🔗 Opening Upwork OAuth URL')
-        window.location.href = data.url
-      } else {
-        throw new Error(data.error || 'Failed to get OAuth URL')
-      }
+      // ✅ DIRECT URL USE KARO - API CALL NAHI
+      const clientId = 'b2cf4bfa369cac47083f664358d3accb'
+      const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
+      
+      const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
+      
+      window.location.href = authUrl
+      
     } catch (error: any) {
-      console.error('Error connecting Upwork:', error)
-      setConnectionStatus('error')
-      alert('Failed to connect Upwork: ' + error.message)
+      alert('Error: ' + error.message)
       setConnecting(false)
-    }
-  }
-
-  const handleDisconnectUpwork = async () => {
-    try {
-      const response = await fetch('/api/upwork', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'disconnect' })
-      })
-
-      if (response.ok) {
-        setUpworkConnected(false)
-        setConnectionStatus('idle')
-        alert('✅ Upwork disconnected successfully')
-      }
-    } catch (error) {
-      console.error('Error disconnecting Upwork:', error)
     }
   }
 
@@ -143,7 +79,7 @@ useEffect(() => {
                   setSidebarOpen(false)
                 }}
                 className={`group w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-all ${
-                  isActive(item.href) 
+                  pathname === item.href
                     ? 'bg-blue-600 text-white shadow-lg' 
                     : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                 }`}
@@ -154,86 +90,21 @@ useEffect(() => {
             ))}
           </nav>
 
-          {/* Upwork Connection Card */}
+          {/* Upwork Connection Card - SIMPLE */}
           <div className="px-4 mt-6">
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
               <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
               <p className="text-gray-300 text-sm mb-4">
-                {upworkConnected 
-                  ? 'Your Upwork account is connected and ready to use.' 
-                  : 'Connect your Upwork account to access real job data and send proposals directly.'
-                }
+                Connect your Upwork account to access real job data
               </p>
               
-              {/* Connection Status Indicator */}
-              <div className="flex items-center mb-3">
-                <div className={`w-3 h-3 rounded-full mr-2 ${
-                  connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' :
-                  connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-                  connectionStatus === 'error' ? 'bg-red-500' : 'bg-gray-500'
-                }`}></div>
-                <span className="text-sm text-gray-300">
-                  {connectionStatus === 'connected' ? 'Connected' :
-                   connectionStatus === 'connecting' ? 'Connecting...' :
-                   connectionStatus === 'error' ? 'Connection Error' : 'Not Connected'}
-                </span>
-              </div>
-
               <button 
-                onClick={upworkConnected ? handleDisconnectUpwork : handleConnectUpwork}
+                onClick={handleConnectUpwork}
                 disabled={connecting}
-                className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors ${
-                  upworkConnected
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                } ${connecting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className="w-full py-2 px-4 rounded-lg font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
               >
-                {connecting ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Connecting...
-                  </div>
-                ) : upworkConnected ? (
-                  '🔌 Disconnect Upwork'
-                ) : (
-                  '🔗 Connect Upwork'
-                )}
+                {connecting ? 'Connecting...' : '🔗 Connect Upwork'}
               </button>
-            </div>
-          </div>
-
-          {/* AI Training Progress */}
-          <div className="px-4 mt-4">
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-3">AI Training Progress</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">Proposals Generated</span>
-                  <span className="font-semibold text-white">48</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">User Edits</span>
-                  <span className="font-semibold text-white">23</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-300">AI Learning Score</span>
-                  <span className="font-semibold text-green-400">85%</span>
-                </div>
-                
-                {/* Progress Bar */}
-                <div className="mt-3">
-                  <div className="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>Training Progress</span>
-                    <span>85%</span>
-                  </div>
-                  <div className="w-full bg-gray-700 rounded-full h-2">
-                    <div 
-                      className="bg-green-500 h-2 rounded-full transition-all duration-300" 
-                      style={{ width: '85%' }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

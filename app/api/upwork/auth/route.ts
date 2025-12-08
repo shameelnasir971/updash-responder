@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - COMPLETE FIXED
+// app/api/upwork/auth/route.ts - SUPER SIMPLE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -10,25 +10,27 @@ export async function GET() {
     const redirectUri = process.env.UPWORK_REDIRECT_URI
     
     if (!clientId || !redirectUri) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         success: false,
-        error: 'Configuration missing' 
-      }, { status: 200 }) // ✅ NO 500 ERROR
+        url: null,
+        error: 'Configuration missing'
+      })
     }
     
-    // ✅ SIMPLE URL WITHOUT AUTH CHECK
+    // ✅ SIMPLE URL WITHOUT ANY EXTRA PARAMS
     const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
     
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       url: authUrl,
-      message: 'OAuth URL generated'
+      message: 'URL generated'
     })
+    
   } catch (error: any) {
-    console.error('OAuth error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: false,
-      error: error.message 
-    }, { status: 200 }) // ✅ NO 500 ERROR
+      url: null,
+      error: error.message
+    })
   }
 }
