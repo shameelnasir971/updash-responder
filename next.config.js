@@ -1,36 +1,19 @@
-// next.config.js - CORRECT VERSION
+// next.config.js - SIMPLE VERSION (Railway compatible)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Railway ke liye yeh configuration use karo
-  output: 'standalone',
+  // ❌ REMOVE THIS LINE COMPLETELY: output: 'standalone'
+  // Railway doesn't need standalone mode for Node.js apps
+  reactStrictMode: true,
+  swcMinify: true,
+  
+  // Allow external packages
   experimental: {
-    serverComponentsExternalPackages: ['pg', 'bcryptjs', 'jsonwebtoken'],
+    serverComponentsExternalPackages: ['pg', 'bcryptjs'],
   },
-  // Images optimization off karo
+  
+  // Disable image optimization if not needed
   images: {
     unoptimized: true,
-  },
-  // Environment variables expose karo
-  env: {
-    DATABASE_URL: process.env.DATABASE_URL,
-    UPWORK_CLIENT_ID: process.env.UPWORK_CLIENT_ID,
-    UPWORK_CLIENT_SECRET: process.env.UPWORK_CLIENT_SECRET,
-    UPWORK_REDIRECT_URI: process.env.UPWORK_REDIRECT_URI,
-    JWT_SECRET: process.env.JWT_SECRET,
-  },
-  // API routes ke liye
-  async headers() {
-    return [
-      {
-        source: '/api/:path*',
-        headers: [
-          { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
-        ],
-      },
-    ]
   }
 }
 

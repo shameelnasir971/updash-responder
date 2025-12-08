@@ -97,54 +97,51 @@ export default function Dashboard() {
       setLoading(false)
     }
   }
+  
 
-
-// app/dashboard/page.tsx - Updated loadJobs function
 const loadJobs = async () => {
   setJobsLoading(true)
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading REAL jobs from Upwork...')
+    console.log('🔄 Loading REAL Upwork jobs...')
     const response = await fetch('/api/upwork/jobs')
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`)
+    }
+    
     const data = await response.json()
-
-    console.log('📊 Response:', {
+    console.log('📊 API Response:', {
       success: data.success,
-      jobCount: data.jobs?.length,
-      source: data.source,
-      message: data.message
+      jobsCount: data.jobs?.length,
+      message: data.message,
+      upworkConnected: data.upworkConnected
     })
 
     if (data.success) {
-      // ✅ SET REAL JOBS
+      // ✅ SET REAL JOBS YA EMPTY ARRAY
       setJobs(data.jobs || [])
-      setUpworkConnected(data.upworkConnected)
+      setUpworkConnected(data.upworkConnected || false)
       
-      // Update stats with REAL data
-      if (data.jobs?.length > 0) {
+      // Update stats
+      if (data.jobs && data.jobs.length > 0) {
         setStats({
           totalJobs: data.jobs.length,
-          matchedJobs: data.jobs.length, // All jobs are "matched" for now
-          proposalsSent: stats.proposalsSent,
-          successRate: 85
+          matchedJobs: data.jobs.length,
+          proposalsSent: 0,
+          successRate: 0
         })
+        console.log(`✅ Displaying ${data.jobs.length} REAL jobs`)
       } else {
-        // No jobs found
         setStats({
           totalJobs: 0,
           matchedJobs: 0,
-          proposalsSent: stats.proposalsSent,
+          proposalsSent: 0,
           successRate: 0
         })
-        
-        // Show appropriate message
-        if (data.upworkConnected) {
-          setConnectionError(data.message || 'No jobs found. Try refreshing.')
-        }
+        setConnectionError(data.message || 'No jobs found')
       }
-      
-      console.log(`✅ Set ${data.jobs?.length || 0} REAL jobs`)
     } else {
       setConnectionError(data.error || 'Failed to load jobs')
       setJobs([])
@@ -152,7 +149,7 @@ const loadJobs = async () => {
     
   } catch (error: any) {
     console.error('❌ Load jobs error:', error)
-    setConnectionError('Connection error. Please try again.')
+    setConnectionError('Failed to connect. Please try again.')
     setJobs([]) // Empty array on error
   } finally {
     setJobsLoading(false)
