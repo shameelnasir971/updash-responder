@@ -1,18 +1,16 @@
-// next.config.js - FINAL WORKING VERSION
+// next.config.js 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // ✅ HATA DO: output: 'standalone' (Railway doesn't need it)
-  reactStrictMode: true,
-  
-  // ✅ Trailing slash disable karo
-  trailingSlash: false,
-  
-  // ✅ Railway ke liye important
-  experimental: {
-    serverComponentsExternalPackages: ['pg', 'bcryptjs'],
+  // Static export disable karein - server needed
+  output: 'standalone',
+  trailingSlash: true,
+  images: {
+    unoptimized: true
   },
-  
-  // ✅ API routes ko optimize karo
+  experimental: {
+    serverComponentsExternalPackages: ['bcryptjs', 'pg'],
+  },
+  // API routes ko allow karein
   async rewrites() {
     return [
       {

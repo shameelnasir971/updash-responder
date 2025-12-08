@@ -1,4 +1,4 @@
-// app/api/upwork/callback/route.ts - DEBUG VERSION
+// / app/api/upwork/callback/route.ts - DEBUG VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '../../../../lib/database'
 

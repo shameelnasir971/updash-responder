@@ -1,175 +1,159 @@
-// app/api/upwork/real-jobs/route.ts - NEW FILE
+// / app/api/upwork/callback/route.ts - DEBUG VERSION
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ CORRECT UPWORK GRAPHQL QUERY (jobSearch not jobs)
-async function fetchRealUpworkJobs(accessToken: string) {
+export async function GET(request: NextRequest) {
   try {
-    console.log('🔗 Fetching REAL jobs from Upwork...')
+    const { searchParams } = new URL(request.url)
+    const code = searchParams.get('code')
+    const error = searchParams.get('error')
+    const errorDescription = searchParams.get('error_description')
+
+    console.log('=== UPWORK CALLBACK DEBUG START ===')
+    console.log('🔍 Received parameters:', { code: code ? 'Present' : 'Missing', error, errorDescription })
+    console.log('🔍 Full URL:', request.url)
+
+    // Agar error hai directly URL mein
+    if (error) {
+      console.error('❌ Upwork returned error:', { error, errorDescription })
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent(`OAuth Error: ${error} - ${errorDescription || 'No description'}`))
+    }
+
+    // Agar code nahi hai
+    if (!code) {
+      console.error('❌ No authorization code received')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+authorization+code+received')
+    }
+
+    console.log('✅ Authorization code received (first 20 chars):', code.substring(0, 20) + '...')
+
+    // Environment variables check
+    const clientId = process.env.UPWORK_CLIENT_ID
+    const clientSecret = process.env.UPWORK_CLIENT_SECRET
+    const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
+
+    console.log('🔧 Environment check:', {
+      clientId: clientId ? 'Present' : 'MISSING!',
+      clientSecret: clientSecret ? 'Present' : 'MISSING!',
+      redirectUri
+    })
+
+    if (!clientId || !clientSecret) {
+      console.error('❌ CRITICAL: Client ID or Secret missing in Railway environment')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent('Server configuration error: API credentials missing'))
+    }
+
+    // ✅ STEP 1: Exchange code for tokens
+    console.log('🔄 Exchanging code for access token...')
+    const tokenUrl = 'https://www.upwork.com/api/v3/oauth2/token'
     
-    // ✅ CORRECT QUERY - jobSearch use karo
-    const query = `
-      query {
-        jobSearch(
-          filter: { 
-            category2: "Web, Mobile & Software Dev"
-          }
-          sort: { field: POSTED_ON, direction: DESC }
-          first: 20
-        ) {
-          edges {
-            node {
-              id
-              title
-              description
-              budget {
-                amount
-                currency
-              }
-              client {
-                name
-                feedback
-                country {
-                  name
-                }
-              }
-              skills {
-                name
-              }
-              proposalCount
-              isVerified
-              category {
-                title
-              }
-              postedOn
-            }
-          }
-          totalCount
-        }
-      }
-    `
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      client_secret: clientSecret,
+    })
+
+    console.log('📤 Token request to:', tokenUrl)
     
-    const response = await fetch('https://api.upwork.com/graphql', {
+    const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify({ query })
+      body: params
     })
 
-    console.log('📊 Response status:', response.status)
-    
-    if (!response.ok) {
-      console.error('❌ GraphQL error')
-      return []
-    }
+    const responseText = await tokenResponse.text()
+    console.log('📥 Token response status:', tokenResponse.status)
+    console.log('📥 Token response body:', responseText)
 
-    const data = await response.json()
-    
-    if (data.errors) {
-      console.error('❌ GraphQL errors:', data.errors)
-      return []
-    }
-    
-    const edges = data.data?.jobSearch?.edges || []
-    console.log(`✅ Found ${edges.length} REAL jobs`)
-    
-    return edges.map((edge: any) => {
-      const job = edge.node
-      return {
-        id: job.id || `job_${Date.now()}`,
-        title: job.title || 'Web Development Job',
-        description: job.description || '',
-        budget: job.budget ? 
-          `${job.budget.currency || 'USD'} ${job.budget.amount || '0'}` : 
-          'Budget not specified',
-        postedDate: job.postedOn ? 
-          new Date(job.postedOn).toLocaleDateString() : 
-          new Date().toLocaleDateString(),
-        client: {
-          name: job.client?.name || 'Client',
-          rating: job.client?.feedback || 4.5,
-          country: job.client?.country?.name || 'Remote',
-          totalSpent: 0,
-          totalHires: 0
-        },
-        skills: job.skills?.map((s: any) => s.name) || [],
-        proposals: job.proposalCount || 0,
-        verified: job.isVerified || false,
-        category: job.category?.title || 'Web Development',
-        duration: 'Not specified',
-        source: 'upwork',
-        isRealJob: true
+    if (!tokenResponse.ok) {
+      console.error('❌ TOKEN EXCHANGE FAILED!')
+      console.error('❌ Status:', tokenResponse.status)
+      console.error('❌ Response:', responseText)
+      
+      // Try to parse error
+      let errorMsg = 'Token exchange failed'
+      try {
+        const errorData = JSON.parse(responseText)
+        errorMsg = errorData.error || errorData.message || responseText.substring(0, 100)
+      } catch (e) {
+        errorMsg = responseText.substring(0, 100)
       }
-    })
-    
-  } catch (error: any) {
-    console.error('❌ Fetch error:', error.message)
-    return []
-  }
-}
-
-// GET endpoint
-export async function GET() {
-  try {
-    const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json({ 
-        success: true,
-        jobs: [],
-        total: 0,
-        message: 'Not authenticated'
-      })
+      
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent(`Token error: ${errorMsg}`))
     }
 
-    console.log(`🎯 Fetching REAL jobs for: ${user.email}`)
+    // ✅ STEP 2: Parse successful response
+    const tokenData = JSON.parse(responseText)
+    console.log('✅ Token exchange SUCCESSFUL!')
+    console.log('🔑 Access token received:', tokenData.access_token ? 'Yes' : 'No')
+    console.log('🔄 Refresh token:', tokenData.refresh_token ? 'Yes' : 'No')
+    console.log('⏳ Expires in:', tokenData.expires_in, 'seconds')
 
-    // Check Upwork connection
-    const upworkResult = await pool.query(
-      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
-      [user.id]
+    // ✅ STEP 3: Get user from database
+    console.log('💾 Saving token to database...')
+    const users = await pool.query('SELECT id FROM users LIMIT 1')
+    
+    if (users.rows.length === 0) {
+      console.error('❌ No user found in database')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent('No user account found. Please sign up first.'))
+    }
+
+    const userId = users.rows[0].id
+    console.log('👤 Found user ID:', userId)
+
+    // ✅ STEP 4: Save to database
+    const insertQuery = `
+      INSERT INTO upwork_accounts (user_id, access_token, refresh_token, created_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (user_id) 
+      DO UPDATE SET 
+        access_token = $2, 
+        refresh_token = $3,
+        updated_at = NOW()
+      RETURNING id
+    `
+    
+    try {
+      const result = await pool.query(insertQuery, [
+        userId, 
+        tokenData.access_token, 
+        tokenData.refresh_token || ''
+      ])
+      console.log('💾 Token saved to database. Row ID:', result.rows[0]?.id)
+    } catch (dbError: any) {
+      console.error('❌ Database error:', dbError.message)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+        encodeURIComponent(`Database error: ${dbError.message}`))
+    }
+
+    // ✅ STEP 5: Verify save
+    const verifyResult = await pool.query(
+      'SELECT COUNT(*) as count FROM upwork_accounts WHERE user_id = $1',
+      [userId]
     )
     
-    let jobs = []
-    let message = ''
-    
-    if (upworkResult.rows.length > 0 && upworkResult.rows[0].access_token) {
-      const accessToken = upworkResult.rows[0].access_token
-      console.log('🔑 Access token found')
-      
-      jobs = await fetchRealUpworkJobs(accessToken)
-      
-      if (jobs.length > 0) {
-        message = `✅ Loaded ${jobs.length} real jobs from Upwork`
-      } else {
-        message = 'No jobs found on Upwork'
-      }
-    } else {
-      message = 'Connect Upwork account'
-      jobs = []
-    }
+    console.log('✅ Verification:', verifyResult.rows[0].count, 'token(s) in database')
+    console.log('=== UPWORK CALLBACK DEBUG END ===')
 
-    return NextResponse.json({ 
-      success: true,
-      jobs: jobs,
-      total: jobs.length,
-      message: message,
-      upworkConnected: upworkResult.rows.length > 0
-    })
+    // ✅ FINAL SUCCESS
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+successfully!')
 
   } catch (error: any) {
-    console.error('❌ Jobs API error:', error)
-    return NextResponse.json({ 
-      success: true,
-      jobs: [],
-      total: 0,
-      message: 'Error loading jobs'
-    })
+    console.error('❌ CALLBACK UNEXPECTED ERROR:', error.message)
+    console.error('❌ Stack trace:', error.stack)
+    
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
+      encodeURIComponent(`Unexpected error: ${error.message}`))
   }
 }
