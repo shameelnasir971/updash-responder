@@ -2,6 +2,7 @@
 
 'use client'
 
+import pool from '@/lib/database'
 import { useRouter, usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
 
@@ -44,23 +45,18 @@ export default function Sidebar({
 useEffect(() => {
   const checkConnection = async () => {
     try {
-      const response = await fetch('/api/upwork/status')
-      if (response.ok) {
-        const data = await response.json()
-        setUpworkConnected(data.connected)
-        setConnectionStatus(data.connected ? 'connected' : 'idle')
-        
-        // Agar connected hai, to test jobs fetch
-        if (data.connected) {
-          const jobsResponse = await fetch('/api/upwork/jobs')
-          if (jobsResponse.ok) {
-            const jobsData = await jobsResponse.json()
-            console.log('✅ Upwork connected, real job count:', jobsData.total)
-          }
-        }
-      }
+      // ✅ SIMPLE CHECK - Just check if token exists in DB
+      const users = await pool.query('SELECT COUNT(*) FROM upwork_accounts')
+      const hasToken = parseInt(users.rows[0].count) > 0
+      
+      setUpworkConnected(hasToken)
+      setConnectionStatus(hasToken ? 'connected' : 'idle')
+      
+      console.log('🔍 Connection check:', hasToken ? 'Connected' : 'Not connected')
     } catch (error) {
       console.error('Connection check error:', error)
+      setUpworkConnected(false)
+      setConnectionStatus('error')
     }
   }
   

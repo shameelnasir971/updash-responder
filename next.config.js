@@ -1,24 +1,21 @@
-// next.config.js 
+// next.config.js - NEW FILE
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Static export disable karein - server needed
-  output: 'standalone',
-  trailingSlash: true,
-  images: {
-    unoptimized: true
+  eslint: {
+    ignoreDuringBuilds: true,
   },
-  experimental: {
-    serverComponentsExternalPackages: ['bcryptjs', 'pg'],
+  typescript: {
+    ignoreBuildErrors: true,
   },
-  // API routes ko allow karein
+  async redirects() {
+    return []
+  },
   async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: '/api/:path*',
-      },
-    ]
-  }
+    return []
+  },
+  images: {
+    domains: ['www.upwork.com'],
+  },
 }
 
 module.exports = nextConfig

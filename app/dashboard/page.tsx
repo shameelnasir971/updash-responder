@@ -100,16 +100,28 @@ export default function Dashboard() {
   }
 
 
+// app/dashboard/page.tsx - UPDATED loadJobs function
 const loadJobs = async () => {
   setJobsLoading(true)
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs...')
-    const response = await fetch('/api/upwork/jobs')
-    const data = await response.json()
+    console.log('🔄 Loading jobs from Upwork API...')
+    
+    // ✅ DIRECT API CALL - NO REDIRECT
+    const response = await fetch('/api/upwork/jobs', {
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
 
-    console.log('📊 Response:', {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('📊 Jobs API response:', {
       success: data.success,
       count: data.jobs?.length,
       source: data.source,
@@ -117,25 +129,29 @@ const loadJobs = async () => {
     })
 
     if (data.success) {
-      // ✅ REAL JOBS SET KARO
+      // ✅ SET REAL JOBS (even if empty)
       setJobs(data.jobs)
       setUpworkConnected(data.upworkConnected)
       
-      // Stats update
-      setStats({
+      // Update stats
+      setStats(prev => ({
+        ...prev,
         totalJobs: data.jobs.length,
-        matchedJobs: data.jobs.length,
-        proposalsSent: stats.proposalsSent,
-        successRate: data.jobs.length > 0 ? 85 : 0
-      })
+        matchedJobs: data.jobs.length
+      }))
       
-      console.log(`✅ ${data.jobs.length} jobs set`)
+      if (data.jobs.length === 0 && data.message) {
+        setConnectionError(data.message)
+      }
+    } else {
+      throw new Error(data.error || 'Failed to load jobs')
     }
     
   } catch (error: any) {
-    console.error('❌ Error:', error)
-    setConnectionError('Connection issue')
+    console.error('❌ Load jobs error:', error.message)
+    setConnectionError('Failed to load jobs: ' + error.message)
     setJobs([]) // Empty array
+    setUpworkConnected(false)
   } finally {
     setJobsLoading(false)
   }
