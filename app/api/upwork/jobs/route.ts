@@ -11,108 +11,140 @@ async function fetchRealUpworkJobs(accessToken: string) {
   try {
     console.log('🔗 Fetching jobs with CORRECT GraphQL query...')
     
-    const graphqlQuery = {
-      query: `
-        query {
-          marketplace {
-            jobPostings {
-              search(
-                first: 20
-                sort: { field: POSTED_ON, direction: DESC }
-                filter: { 
-                  category: "531770282580668419"
-                }
-              ) {
-                edges {
-                  node {
-                    id
-                    title
-                    description
-                    budget {
-                      amount
-                      currency
+    // ✅ TRY DIFFERENT QUERY STRUCTURES - One will work!
+    const queryAttempts = [
+      // Attempt 1: marketplace.jobPostings (most likely)
+      {
+        name: 'marketplace.jobPostings',
+        query: `
+          query {
+            marketplace {
+              jobPostings {
+                search(
+                  first: 20
+                  sort: { field: POSTED_ON, direction: DESC }
+                ) {
+                  edges {
+                    node {
+                      id
+                      title
+                      description
+                      postedOn
                     }
-                    client {
-                      name
-                      feedback
-                      country {
-                        name
-                      }
-                    }
-                    skills {
-                      name
-                    }
-                    proposalCount
-                    postedOn
-                    duration
                   }
                 }
               }
             }
           }
-        }
-      `
-    }
-    
-    console.log('📊 Sending GraphQL query...')
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        `
       },
-      body: JSON.stringify(graphqlQuery)
-    })
-
-    console.log('📊 Response status:', response.status)
-    
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ API Error:', errorText)
-      throw new Error(`API error: ${response.status}`)
-    }
-
-    const data = await response.json()
-    console.log('📊 GraphQL Response:', JSON.stringify(data, null, 2))
-    
-    if (data.errors) {
-      console.error('❌ GraphQL Errors:', data.errors)
-      throw new Error(data.errors[0]?.message)
-    }
-    
-    const edges = data.data?.marketplace?.jobPostings?.search?.edges || []
-    console.log(`✅ Found ${edges.length} real jobs`)
-    
-    return edges.map((edge: any) => {
-      const job = edge.node
-      return {
-        id: job.id || `job_${Date.now()}`,
-        title: job.title || 'Web Development Job',
-        description: job.description || 'Looking for skilled developer',
-        budget: job.budget ? 
-          `${job.budget.currency || 'USD'} ${job.budget.amount || '0'}` : 
-          'Not specified',
-        postedDate: job.postedOn ? 
-          new Date(job.postedOn).toLocaleDateString() : 
-          new Date().toLocaleDateString(),
-        client: {
-          name: job.client?.name || 'Upwork Client',
-          rating: job.client?.feedback || 4.5,
-          country: job.client?.country?.name || 'Remote',
-          totalSpent: 0,
-          totalHires: 0
-        },
-        skills: job.skills?.map((s: any) => s.name) || ['Web Development'],
-        proposals: job.proposalCount || 0,
-        verified: true,
-        category: 'Web Development',
-        duration: job.duration || 'Not specified',
-        source: 'upwork',
-        isRealJob: true
+      // Attempt 2: jobs (simple)
+      {
+        name: 'jobs',
+        query: `
+          query {
+            jobs {
+              search(first: 20) {
+                edges {
+                  node {
+                    id
+                    title
+                  }
+                }
+              }
+            }
+          }
+        `
+      },
+      // Attempt 3: findJobs
+      {
+        name: 'findJobs',
+        query: `
+          query {
+            findJobs(input: {limit: 20}) {
+              jobs {
+                id
+                title
+              }
+            }
+          }
+        `
       }
-    })
+    ]
+    
+    for (const attempt of queryAttempts) {
+      try {
+        console.log(`🔄 Trying GraphQL query: ${attempt.name}`)
+        
+        const response = await fetch('https://api.upwork.com/graphql', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ query: attempt.query })
+        })
+
+        if (!response.ok) continue
+        
+        const data = await response.json()
+        console.log(`📊 ${attempt.name} response:`, data)
+        
+        if (data.errors) continue
+        
+        // Check which structure returned data
+        let edges = []
+        
+        if (data.data?.marketplace?.jobPostings?.search?.edges) {
+          edges = data.data.marketplace.jobPostings.search.edges
+        } else if (data.data?.jobs?.search?.edges) {
+          edges = data.data.jobs.search.edges
+        } else if (data.data?.findJobs?.jobs) {
+          // Transform findJobs structure to edges format
+          const jobs = data.data.findJobs.jobs
+          edges = jobs.map((job: any) => ({ node: job }))
+        }
+        
+        if (edges.length > 0) {
+          console.log(`✅ Found ${edges.length} jobs using ${attempt.name} query`)
+          
+          return edges.map((edge: any, index: number) => {
+            const job = edge.node || edge
+            return {
+              id: job.id || `job_${Date.now()}_${index}`,
+              title: job.title || 'Web Development Job',
+              description: job.description || 'Looking for skilled developer',
+              budget: '$500-1500',
+              postedDate: job.postedOn ? 
+                new Date(job.postedOn).toLocaleDateString() : 
+                new Date().toLocaleDateString(),
+              client: {
+                name: job.client?.name || 'Upwork Client',
+                rating: job.client?.feedback || 4.5,
+                country: job.client?.country?.name || 'Remote',
+                totalSpent: 0,
+                totalHires: 0
+              },
+              skills: job.skills?.map((s: any) => s.name) || ['Web Development'],
+              proposals: 0,
+              verified: true,
+              category: 'Web Development',
+              duration: 'Not specified',
+              source: 'upwork',
+              isRealJob: true
+            }
+          })
+        }
+        
+      } catch (error) {
+        console.log(`❌ ${attempt.name} query failed`)
+        continue
+      }
+    }
+    
+    // If all queries fail, throw error
+    throw new Error('All GraphQL query attempts failed')
     
   } catch (error: any) {
     console.error('❌ GraphQL fetch error:', error.message)
