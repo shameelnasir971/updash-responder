@@ -1,19 +1,20 @@
-// next.config.js - SIMPLE VERSION (Railway compatible)
+// next.config.js - SIMPLE VERSION
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // ❌ REMOVE THIS LINE COMPLETELY: output: 'standalone'
-  // Railway doesn't need standalone mode for Node.js apps
+  // ✅ HATA DO: output: 'standalone'
   reactStrictMode: true,
-  swcMinify: true,
   
-  // Allow external packages
+  // ✅ Railway ke liye important
   experimental: {
     serverComponentsExternalPackages: ['pg', 'bcryptjs'],
   },
   
-  // Disable image optimization if not needed
-  images: {
-    unoptimized: true,
+  // ✅ Environment variables expose karo
+  env: {
+    UPWORK_CLIENT_ID: process.env.UPWORK_CLIENT_ID,
+    UPWORK_CLIENT_SECRET: process.env.UPWORK_CLIENT_SECRET,
+    UPWORK_REDIRECT_URI: process.env.UPWORK_REDIRECT_URI,
+    JWT_SECRET: process.env.JWT_SECRET,
   }
 }
 
