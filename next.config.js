@@ -1,4 +1,3 @@
-// next.config.js - NEW FILE
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: {
@@ -7,14 +6,20 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  async redirects() {
-    return []
-  },
-  async rewrites() {
-    return []
-  },
-  images: {
-    domains: ['www.upwork.com'],
+  webpack: (config, { isServer }) => {
+    // ✅ Client-side pe 'pg' package resolve na kare
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        pg: false,
+        'pg-native': false,
+        dns: false,
+        fs: false,
+        net: false,
+        tls: false,
+      }
+    }
+    return config
   },
 }
 

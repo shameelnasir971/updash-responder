@@ -1,8 +1,5 @@
-//components/Layout/Sidebar.tsx
-
 'use client'
 
-import pool from '@/lib/database'
 import { useRouter, usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
 
@@ -35,65 +32,68 @@ export default function Sidebar({
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'Prompts', href: '/dashboard/prompts', icon: '⚡' },
-      { name: 'History', href: '/dashboard/history', icon: '📝' }, 
+    { name: 'History', href: '/dashboard/history', icon: '📝' },
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
   const isActive = (path: string) => pathname === path
 
-  // Check Upwork connection status
-useEffect(() => {
-  const checkConnection = async () => {
+  // ✅ SIMPLE CHECK - Database call remove karo
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        // ✅ DIRECT API CALL use karo database ki jagah
+        const response = await fetch('/api/upwork/status')
+        if (response.ok) {
+          const data = await response.json()
+          setUpworkConnected(data.connected || false)
+          setConnectionStatus(data.connected ? 'connected' : 'idle')
+        }
+      } catch (error) {
+        console.log('Connection check failed, assuming not connected')
+        setUpworkConnected(false)
+        setConnectionStatus('idle')
+      }
+    }
+    
+    checkConnection()
+  }, [])
+
+  const handleConnectUpwork = async () => {
+    setConnecting(true)
+    setConnectionStatus('connecting')
+    
     try {
-      // ✅ SIMPLE CHECK - Just check if token exists in DB
-      const users = await pool.query('SELECT COUNT(*) FROM upwork_accounts')
-      const hasToken = parseInt(users.rows[0].count) > 0
-      
-      setUpworkConnected(hasToken)
-      setConnectionStatus(hasToken ? 'connected' : 'idle')
-      
-      console.log('🔍 Connection check:', hasToken ? 'Connected' : 'Not connected')
-    } catch (error) {
-      console.error('Connection check error:', error)
-      setUpworkConnected(false)
+      const response = await fetch('/api/upwork/auth')
+      const data = await response.json()
+
+      if (response.ok && data.success && data.url) {
+        console.log('🔗 Opening Upwork OAuth URL')
+        window.location.href = data.url
+      } else {
+        throw new Error(data.error || 'Failed to get OAuth URL')
+      }
+    } catch (error: any) {
+      console.error('Error connecting Upwork:', error)
       setConnectionStatus('error')
+      alert('Failed to connect Upwork: ' + error.message)
+      setConnecting(false)
     }
   }
-  
-  checkConnection()
-}, [])
-
-const handleConnectUpwork = async () => {
-  setConnecting(true)
-  setConnectionStatus('connecting')
-  
-  try {
-    // ✅ Get OAuth URL from NEW endpoint
-    const response = await fetch('/api/upwork/auth') // NOTICE: '/auth' endpoint
-    const data = await response.json()
-
-    if (response.ok && data.success && data.url) {
-      console.log('🔗 Opening Upwork OAuth URL:', data.url)
-      
-      // Open in same tab (better for mobile)
-      window.location.href = data.url
-      
-    } else {
-      throw new Error(data.error || 'Failed to get OAuth URL')
-    }
-  } catch (error) {
-    console.error('❌ Error connecting Upwork:', error)
-    setConnectionStatus('error')
-    alert('❌ Failed to connect Upwork: ' + (error as Error).message)
-    setConnecting(false)
-  }
-}
 
   const handleDisconnectUpwork = async () => {
     try {
-      setUpworkConnected(false)
-      setConnectionStatus('idle')
-      console.log('🔌 Upwork disconnected')
+      const response = await fetch('/api/upwork', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' })
+      })
+
+      if (response.ok) {
+        setUpworkConnected(false)
+        setConnectionStatus('idle')
+        alert('✅ Upwork disconnected successfully')
+      }
     } catch (error) {
       console.error('Error disconnecting Upwork:', error)
     }

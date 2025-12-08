@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
-  database: 'upwork_assistant', 
+  database: 'upwork_assistant',
   password: 'postgres',
   port: 5432,
 });
@@ -42,7 +42,7 @@ async function setupDatabase() {
     `);
     console.log('✅ Sessions table created/verified');
 
-    // Proposals table - COMPLETE WITH DUPLICATE PREVENTION
+    // Proposals table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS proposals (
         id SERIAL PRIMARY KEY,
@@ -50,23 +50,18 @@ async function setupDatabase() {
         job_id VARCHAR(255),
         job_title TEXT,
         job_description TEXT,
-        client_info JSONB DEFAULT '{}',
-        budget VARCHAR(100),
-        skills TEXT[] DEFAULT '{}',
         generated_proposal TEXT,
         edited_proposal TEXT,
         status VARCHAR(50) DEFAULT 'draft',
         ai_model VARCHAR(100),
         temperature DECIMAL(3,2),
         sent_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, job_id)  -- ✅ DUPLICATE PREVENTION
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Proposals table created/verified');
 
-    // Proposal edits table for AI training
+    // Proposal edits table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS proposal_edits (
         id SERIAL PRIMARY KEY,
@@ -81,7 +76,7 @@ async function setupDatabase() {
     `);
     console.log('✅ Proposal edits table created/verified');
 
-    // Prompt settings table
+    // Prompt settings table - FIXED
     await pool.query(`
       CREATE TABLE IF NOT EXISTS prompt_settings (
         id SERIAL PRIMARY KEY,
@@ -107,6 +102,7 @@ async function setupDatabase() {
       )
     `);
     console.log('✅ User settings table created/verified');
+
     // Upwork accounts table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS upwork_accounts (
@@ -115,8 +111,7 @@ async function setupDatabase() {
         access_token TEXT,
         refresh_token TEXT,
         upwork_user_id VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Upwork accounts table created/verified');
