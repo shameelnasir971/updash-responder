@@ -106,51 +106,42 @@ const loadJobs = async () => {
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs from Upwork API...')
-    
-    // ✅ DIRECT API CALL - NO REDIRECT
+    console.log('🔄 Loading jobs...')
     const response = await fetch('/api/upwork/jobs', {
       cache: 'no-store',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      credentials: 'include' // ✅ COOKIES BHEJO
     })
-
+    
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
-
+    
     const data = await response.json()
-    console.log('📊 Jobs API response:', {
+    console.log('📊 Jobs response:', {
       success: data.success,
       count: data.jobs?.length,
-      source: data.source,
       message: data.message
     })
-
-    if (data.success) {
-      // ✅ SET REAL JOBS (even if empty)
-      setJobs(data.jobs)
-      setUpworkConnected(data.upworkConnected)
-      
-      // Update stats
-      setStats(prev => ({
-        ...prev,
-        totalJobs: data.jobs.length,
-        matchedJobs: data.jobs.length
-      }))
-      
-      if (data.jobs.length === 0 && data.message) {
-        setConnectionError(data.message)
-      }
-    } else {
-      throw new Error(data.error || 'Failed to load jobs')
+    
+    // ✅ ALWAYS SET JOBS (even if empty)
+    setJobs(data.jobs || [])
+    setUpworkConnected(data.upworkConnected || false)
+    
+    // Stats update
+    setStats(prev => ({
+      ...prev,
+      totalJobs: data.jobs?.length || 0,
+      matchedJobs: data.jobs?.length || 0
+    }))
+    
+    if (data.jobs?.length === 0 && data.message) {
+      setConnectionError(data.message)
     }
     
   } catch (error: any) {
-    console.error('❌ Load jobs error:', error.message)
-    setConnectionError('Failed to load jobs: ' + error.message)
-    setJobs([]) // Empty array
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Failed to load jobs')
+    setJobs([]) // EMPTY ARRAY
     setUpworkConnected(false)
   } finally {
     setJobsLoading(false)

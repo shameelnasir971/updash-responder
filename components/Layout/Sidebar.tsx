@@ -39,26 +39,31 @@ export default function Sidebar({
   const isActive = (path: string) => pathname === path
 
   // ✅ SIMPLE CHECK - Database call remove karo
-  useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        // ✅ DIRECT API CALL use karo database ki jagah
-        const response = await fetch('/api/upwork/status')
-        if (response.ok) {
-          const data = await response.json()
-          setUpworkConnected(data.connected || false)
-          setConnectionStatus(data.connected ? 'connected' : 'idle')
-        }
-      } catch (error) {
-        console.log('Connection check failed, assuming not connected')
+useEffect(() => {
+  const checkConnection = async () => {
+    try {
+      // ✅ SIMPLE FETCH - NO AUTH REQUIRED
+      const response = await fetch('/api/upwork/status', {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setUpworkConnected(data.connected || false)
+        setConnectionStatus(data.connected ? 'connected' : 'idle')
+      } else {
         setUpworkConnected(false)
         setConnectionStatus('idle')
       }
+    } catch (error) {
+      console.log('Connection check failed')
+      setUpworkConnected(false)
+      setConnectionStatus('idle')
     }
-    
-    checkConnection()
-  }, [])
-
+  }
+  
+  checkConnection()
+}, [])
   const handleConnectUpwork = async () => {
     setConnecting(true)
     setConnectionStatus('connecting')
