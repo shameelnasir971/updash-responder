@@ -67,35 +67,45 @@ export default function Dashboard() {
   }
 
   // ✅ SIMPLE LOAD JOBS FUNCTION
-  const loadJobs = async () => {
-    setJobsLoading(true)
-    setConnectionError('')
-    
-    try {
-      const response = await fetch('/api/upwork/jobs')
-      const data = await response.json()
+const loadJobs = async () => {
+  setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading real jobs...')
+    const response = await fetch('/api/upwork/jobs')
+    const data = await response.json()
+
+    console.log('📊 Jobs Response:', {
+      success: data.success,
+      count: data.jobs?.length,
+      message: data.message
+    })
+
+    if (data.success) {
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
       
-      console.log('Jobs response:', data)
-      
-      if (data.success) {
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        
-        if (data.jobs?.length === 0 && data.message) {
-          setConnectionError(data.message)
+      if (data.jobs?.length === 0) {
+        if (data.upworkConnected) {
+          setConnectionError('No active jobs found. Try changing your search criteria.')
+        } else {
+          setConnectionError('Connect Upwork account to see real jobs')
         }
-      } else {
-        setConnectionError(data.error || 'Failed to load jobs')
-        setJobs([])
       }
-    } catch (error: any) {
-      console.error('Load jobs error:', error)
-      setConnectionError('Connection error')
+    } else {
+      setConnectionError(data.error || 'Failed to load jobs')
       setJobs([])
-    } finally {
-      setJobsLoading(false)
     }
+    
+  } catch (error: any) {
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Connection error. Please try again.')
+    setJobs([])
+  } finally {
+    setJobsLoading(false)
   }
+}
 
   const handleSignOut = async () => {
     try {
