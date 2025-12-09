@@ -62,8 +62,8 @@ export default function Sidebar({
         <div className="flex-shrink-0 px-6 py-4 border-b border-gray-700">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <h1 className="text-xl font-bold text-white">UPWORK RESPONDER</h1>
-              <p className="text-gray-400 text-xs">AI Upwork Assistant</p>
+              <h1 className="text-xl font-bold text-white">UPDASH RESPONDER</h1>
+              <p className="text-gray-400 text-xs"> Upwork Assistant</p>
             </div>
           </div>
         </div>
@@ -95,7 +95,7 @@ export default function Sidebar({
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
               <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
               <p className="text-gray-300 text-sm mb-4">
-                Connect your Upwork account to access real job data
+                Connect your Upwork account to access job data
               </p>
               
               <button 
