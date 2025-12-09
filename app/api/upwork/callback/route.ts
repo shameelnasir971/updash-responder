@@ -4,46 +4,19 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ FUNCTION: Extract User ID/Tenant ID from Access Token
-function extractUserIdFromToken(accessToken: string): string | null {
+// ✅ FUNCTION: Get Upwork User Info (Tenant ID)
+async function getUpworkUserInfo(accessToken: string) {
   try {
-    console.log('🔍 Extracting user info from access token...')
+    console.log('🔍 Fetching Upwork user info...')
     
-    // Upwork access token format: oauth2v2_xxxxxxxxxxxx
-    // Try to extract user ID from token structure
-    const tokenParts = accessToken.split('_')
-    
-    if (tokenParts.length >= 3) {
-      // The format might be: oauth2v2_{user_id}_{random}
-      const potentialUserId = tokenParts[1]
-      if (potentialUserId && potentialUserId.length > 10) {
-        console.log('✅ Extracted user ID from token format:', potentialUserId.substring(0, 15) + '...')
-        return potentialUserId
-      }
-    }
-    
-    // If above fails, try to use the whole token (first 30 chars) as identifier
-    console.log('⚠️ Using first 30 chars of token as user identifier')
-    return accessToken.substring(0, 30)
-    
-  } catch (error) {
-    console.error('❌ Error extracting user ID:', error)
-    return null
-  }
-}
-
-// ✅ FUNCTION: Test API Access
-async function testApiAccess(accessToken: string) {
-  try {
-    console.log('🧪 Testing API access with token...')
-    
-    // Test with REST API first (doesn't need tenant ID)
-    const testEndpoints = [
-      'https://www.upwork.com/api/profiles/v2/jobs/search.json?q=test&limit=1',
-      'https://api.upwork.com/api/profiles/v2/jobs/search.json?q=test&limit=1'
+    // Try multiple endpoints
+    const endpoints = [
+      'https://www.upwork.com/api/auth/v1/info',
+      'https://api.upwork.com/api/auth/v1/info',
+      'https://www.upwork.com/api/hr/v2/users/me.json'
     ]
     
-    for (const endpoint of testEndpoints) {
+    for (const endpoint of endpoints) {
       try {
         const response = await fetch(endpoint, {
           headers: {
@@ -53,20 +26,25 @@ async function testApiAccess(accessToken: string) {
         })
         
         if (response.ok) {
-          console.log(`✅ API test successful with ${endpoint}`)
-          return true
+          const data = await response.json()
+          console.log(`✅ User info from ${endpoint}:`, Object.keys(data))
+          
+          // Extract user ID from different formats
+          if (data.id) return data.id
+          if (data.user) return data.user.id
+          if (data.profile) return data.profile.id
+          if (data.user_id) return data.user_id
         }
-      } catch (error) {
-        console.log(`❌ API test failed for ${endpoint}`)
+      } catch (e) {
+        console.log(`User info endpoint ${endpoint} failed`)
         continue
       }
     }
     
-    return false
-    
+    return null
   } catch (error) {
-    console.error('❌ API test error:', error)
-    return false
+    console.error('❌ User info fetch error:', error)
+    return null
   }
 }
 
@@ -78,8 +56,6 @@ export async function GET(request: NextRequest) {
     const errorDescription = searchParams.get('error_description')
 
     console.log('=== UPWORK CALLBACK START ===')
-    console.log('🔍 Code received:', code ? 'YES' : 'NO')
-    console.log('🔍 Full callback URL:', request.url)
 
     // Check for errors
     if (error) {
@@ -92,6 +68,8 @@ export async function GET(request: NextRequest) {
       console.error('❌ No authorization code received')
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+authorization+code+received')
     }
+
+    console.log('✅ Authorization code received')
 
     // Environment check
     const clientId = process.env.UPWORK_CLIENT_ID
@@ -116,8 +94,6 @@ export async function GET(request: NextRequest) {
       client_secret: clientSecret,
     })
 
-    console.log('📤 Sending token request...')
-    
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
@@ -148,19 +124,32 @@ export async function GET(request: NextRequest) {
     // ✅ STEP 2: Parse successful response
     const tokenData = JSON.parse(responseText)
     console.log('✅ Token exchange SUCCESSFUL!')
-    console.log('🔑 Access token preview:', tokenData.access_token.substring(0, 30) + '...')
-    console.log('🔄 Refresh token:', tokenData.refresh_token ? 'YES' : 'NO')
-    console.log('⏳ Expires in:', tokenData.expires_in, 'seconds')
 
-    // ✅ STEP 3: Extract User ID from token
-    const upworkUserId = extractUserIdFromToken(tokenData.access_token)
-    console.log('👤 Upwork User ID:', upworkUserId || 'Not extracted')
+    // ✅ STEP 3: Get Tenant ID (Upwork User ID)
+    console.log('🔍 Getting Tenant ID...')
+    let tenantId = await getUpworkUserInfo(tokenData.access_token)
+    
+    if (!tenantId) {
+      console.log('⚠️ Could not get Tenant ID, trying to extract from access token...')
+      
+      // Try to extract from JWT token (if it's JWT format)
+      try {
+        const tokenParts = tokenData.access_token.split('.')
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString())
+          if (payload.sub) {
+            console.log('✅ Got Tenant ID from JWT token:', payload.sub)
+            tenantId = payload.sub
+          }
+        }
+      } catch (jwtError) {
+        console.log('❌ Could not extract Tenant ID from token')
+      }
+    }
 
-    // ✅ STEP 4: Test API access immediately
-    const apiAccess = await testApiAccess(tokenData.access_token)
-    console.log('📡 API Access Test:', apiAccess ? '✅ SUCCESS' : '❌ FAILED')
+    console.log('🔑 Tenant ID:', tenantId || 'NOT FOUND')
 
-    // ✅ STEP 5: Get user from database
+    // ✅ STEP 4: Get user from database
     console.log('💾 Saving to database...')
     const users = await pool.query('SELECT id FROM users LIMIT 1')
     
@@ -171,9 +160,9 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = users.rows[0].id
-    console.log('👤 Found app user ID:', userId)
+    console.log('👤 Found user ID:', userId)
 
-    // ✅ STEP 6: Save to database
+    // ✅ STEP 5: Save to database (INCLUDING TENANT ID)
     const insertQuery = `
       INSERT INTO upwork_accounts (user_id, access_token, refresh_token, upwork_user_id, created_at)
       VALUES ($1, $2, $3, $4, NOW())
@@ -191,24 +180,45 @@ export async function GET(request: NextRequest) {
         userId, 
         tokenData.access_token, 
         tokenData.refresh_token || '',
-        upworkUserId || tokenData.access_token.substring(0, 30) // Use token first 30 chars if no user ID
+        tenantId || null
       ])
       console.log('💾 Token saved to database. Row ID:', result.rows[0]?.id)
-      console.log('✅ API Access:', apiAccess ? 'Ready' : 'May have issues')
+      console.log('✅ Tenant ID saved:', tenantId ? 'YES' : 'NO')
     } catch (dbError: any) {
       console.error('❌ Database error:', dbError.message)
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
         encodeURIComponent(`Database error: ${dbError.message}`))
     }
 
+    // ✅ STEP 6: Test connection immediately
+    if (tenantId && tokenData.access_token) {
+      console.log('🚀 Testing GraphQL connection...')
+      try {
+        const testQuery = { query: '{ __schema { queryType { name } } }' }
+        
+        const testResponse = await fetch('https://api.upwork.com/graphql', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+            'Content-Type': 'application/json',
+            'X-Upwork-API-TenantId': tenantId
+          },
+          body: JSON.stringify(testQuery)
+        })
+        
+        console.log('📊 GraphQL test status:', testResponse.status)
+        if (testResponse.ok) {
+          console.log('🎉 GraphQL API ACCESS SUCCESSFUL!')
+        }
+      } catch (testError) {
+        console.log('⚠️ GraphQL test failed:', testError)
+      }
+    }
+
     console.log('=== UPWORK CALLBACK COMPLETE ===')
 
-    // ✅ FINAL SUCCESS REDIRECT
-    if (apiAccess) {
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+successfully!+You+can+now+load+jobs.')
-    } else {
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+but+API+access+may+be+limited.+Please+check+permissions.')
-    }
+    // ✅ FINAL SUCCESS
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+successfully!')
 
   } catch (error: any) {
     console.error('❌ CALLBACK UNEXPECTED ERROR:', error.message)
