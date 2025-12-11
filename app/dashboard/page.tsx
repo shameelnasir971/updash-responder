@@ -63,45 +63,51 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async () => {
-    setJobsLoading(true)
-    setConnectionError('')
+ const loadJobs = async () => {
+  setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading REAL jobs...')
+    const response = await fetch('/api/upwork/jobs')
     
-    try {
-      console.log('🔄 Loading jobs...')
-      const response = await fetch('/api/upwork/jobs')
-      const data = await response.json()
-
-      console.log('📊 Jobs Response:', {
-        success: data.success,
-        count: data.jobs?.length,
-        message: data.message
-      })
-
-      if (data.success) {
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        
-        if (data.jobs?.length === 0) {
-          if (data.upworkConnected) {
-            setConnectionError('No active jobs found. Try changing your search criteria.')
-          } else {
-            setConnectionError('Connect Upwork account to see jobs')
-          }
-        }
-      } else {
-        setConnectionError(data.error || 'Failed to load jobs')
-        setJobs([])
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Load jobs error:', error)
-      setConnectionError('Connection error. Please try again.')
-      setJobs([])
-    } finally {
-      setJobsLoading(false)
+    if (response.status === 401) {
+      setConnectionError('Session expired. Please login again.')
+      window.location.href = '/auth/login'
+      return
     }
+    
+    const data = await response.json()
+    console.log('📊 Jobs Data:', {
+      success: data.success,
+      count: data.jobs?.length,
+      message: data.message
+    })
+
+    if (data.success) {
+      // ✅ REAL JOBS SET KARO
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
+      
+      if (data.jobs?.length === 0) {
+        setConnectionError(data.message || 'No jobs found. Try refreshing.')
+      } else if (data.jobs?.length > 0) {
+        // ✅ SUCCESS MESSAGE
+        setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+      }
+    } else {
+      setConnectionError(data.message || 'Failed to load jobs')
+      setJobs([])
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Network error. Please check connection.')
+    setJobs([])
+  } finally {
+    setJobsLoading(false)
   }
+}
 
 const handleConnectUpwork = async () => {
   setConnecting(true)

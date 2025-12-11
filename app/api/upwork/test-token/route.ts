@@ -3,24 +3,24 @@ import pool from '../../../../lib/database'
 
 export async function GET() {
   try {
-    // Get token
-    const result = await pool.query('SELECT access_token FROM upwork_accounts LIMIT 1')
+    const result = await pool.query(
+      'SELECT access_token FROM upwork_accounts LIMIT 1'
+    )
     
     if (result.rows.length === 0) {
-      return NextResponse.json({ error: 'No token found' })
+      return NextResponse.json({ error: 'No token' })
     }
     
-    const accessToken = result.rows[0].access_token
+    const token = result.rows[0].access_token
     
-    // Test token with a simple query
-    const testQuery = {
+    // SUPER SIMPLE QUERY
+    const query = {
       query: `{
-        __schema {
-          queryType {
-            name
-            fields {
-              name
-              description
+        marketplaceJobPostingsSearch(input: {paging: {first: 5}}) {
+          edges {
+            node {
+              id
+              title
             }
           }
         }
@@ -30,40 +30,16 @@ export async function GET() {
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(testQuery)
+      body: JSON.stringify(query)
     })
-    
-    if (!response.ok) {
-      return NextResponse.json({
-        error: 'Token invalid',
-        status: response.status,
-        statusText: response.statusText
-      })
-    }
     
     const data = await response.json()
-    
-    // Check available queries
-    const queries = data.data?.__schema?.queryType?.fields || []
-    const jobQueries = queries.filter((q: any) => 
-      q.name.toLowerCase().includes('job')
-    )
-    
-    return NextResponse.json({
-      success: true,
-      tokenValid: true,
-      tokenLength: accessToken.length,
-      availableJobQueries: jobQueries.map((q: any) => q.name),
-      allQueries: queries.map((q: any) => q.name)
-    })
+    return NextResponse.json(data)
     
   } catch (error: any) {
-    return NextResponse.json({
-      error: error.message,
-      success: false
-    })
+    return NextResponse.json({ error: error.message })
   }
 }
