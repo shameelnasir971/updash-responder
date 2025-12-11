@@ -128,7 +128,7 @@ export async function GET() {
     const accessToken = upworkResult.rows[0].access_token
     console.log('✅ Token length:', accessToken?.length || 0)
     
-    if (!accessToken || accessToken.length < 10) {
+    if (!accessToken || accessToken.length < 100) {
       console.log('❌ Invalid token in DB')
       return NextResponse.json({
         success: false,
