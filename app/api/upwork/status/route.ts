@@ -1,4 +1,4 @@
-// app/api/upwork/status/route.ts - SUPER SIMPLE VERSION
+// app/api/upwork/status/route.ts 
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '../../../../lib/database'
 
