@@ -5,117 +5,60 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ ALTERNATE METHOD: Get Tenant ID using different query
-async function getTenantIdAlternate(accessToken: string) {
+// ✅ Get Tenant ID from alternative source
+async function getTenantIdSmart(accessToken: string) {
   try {
-    console.log('🔍 Getting Tenant ID (Alternate method)...')
+    console.log('🔍 Getting Tenant ID from alternative query...')
     
-    // Try different GraphQL queries to find current user
-    const queries = [
-      // Query 1: Try 'currentUser' instead of 'me'
-      {
-        query: `
-          query GetCurrentUser {
-            currentUser {
-              id
-              displayName
-            }
-          }
-        `
-      },
-      // Query 2: Try 'viewer' (common in GraphQL)
-      {
-        query: `
-          query GetViewer {
-            viewer {
-              id
-              name
-            }
-          }
-        `
-      },
-      // Query 3: Try user query with hardcoded ID (might work)
-      {
-        query: `
-          query GetUser {
-            user(id: "self") {
-              id
-              displayName
-            }
-          }
-        `
-      }
-    ]
-    
-    for (const queryObj of queries) {
-      try {
-        console.log(`Trying query: ${queryObj.query.substring(0, 50)}...`)
-        
-        const response = await fetch('https://api.upwork.com/graphql', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(queryObj)
-        })
-        
-        if (response.ok) {
-          const data = await response.json()
-          console.log('Query response:', JSON.stringify(data).substring(0, 200))
-          
-          // Check different response structures
-          if (data.data?.currentUser?.id) {
-            console.log('✅ Found Tenant ID in currentUser.id:', data.data.currentUser.id)
-            return data.data.currentUser.id
-          }
-          if (data.data?.viewer?.id) {
-            console.log('✅ Found Tenant ID in viewer.id:', data.data.viewer.id)
-            return data.data.viewer.id
-          }
-          if (data.data?.user?.id) {
-            console.log('✅ Found Tenant ID in user.id:', data.data.user.id)
-            return data.data.user.id
+    // Try getting user info from a different query
+    const userQuery = {
+      query: `
+        query GetUserInfo {
+          userDetails {
+            id
+            displayName
+            email
           }
         }
-      } catch (error) {
-        console.log('Query failed, trying next...')
-        continue
-      }
+      `
     }
     
-    // ✅ LAST RESORT: Extract from JWT token
-    console.log('🔄 Trying to extract from JWT token...')
-    try {
-      // Access token is JWT format: xxxxx.yyyyy.zzzzz
+    const response = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(userQuery)
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      console.log('User details response:', JSON.stringify(data).substring(0, 300))
+      
+      // Try different possible locations for user ID
+      if (data.data?.userDetails?.id) {
+        console.log('✅ Found Tenant ID in userDetails.id:', data.data.userDetails.id)
+        return data.data.userDetails.id
+      }
+      
+      // Try extracting from JWT token as fallback
       const tokenParts = accessToken.split('.')
       if (tokenParts.length === 3) {
-        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString())
-        console.log('JWT payload keys:', Object.keys(payload))
-        
-        // Look for user ID in JWT claims
-        if (payload.sub) {
-          console.log('✅ Found sub in JWT:', payload.sub)
-          return payload.sub
-        }
-        if (payload.user_id) {
-          console.log('✅ Found user_id in JWT:', payload.user_id)
-          return payload.user_id
-        }
-        if (payload.uid) {
-          console.log('✅ Found uid in JWT:', payload.uid)
-          return payload.uid
+        try {
+          const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString())
+          if (payload.sub) return payload.sub
+          if (payload.user_id) return payload.user_id
+        } catch (e) {
+          console.log('Could not decode JWT')
         }
       }
-    } catch (jwtError) {
-      console.log('Could not decode JWT')
     }
     
     return null
-    
   } catch (error) {
-    console.error('❌ Alternate method error:', error)
+    console.error('Tenant ID fetch error:', error)
     return null
   }
 }
@@ -129,9 +72,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+code')
     }
     
-    console.log('=== UPWORK CALLBACK START (FINAL) ===')
+    console.log('=== UPWORK CALLBACK START ===')
     
-    // Environment variables
+    // Environment check
     const clientId = process.env.UPWORK_CLIENT_ID
     const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
@@ -167,17 +110,10 @@ export async function GET(request: NextRequest) {
     const tokenData = await tokenResponse.json()
     console.log('✅ Token received')
     
-    // 2. Get Tenant ID using alternate method
-    const tenantId = await getTenantIdAlternate(tokenData.access_token)
+    // 2. Get Tenant ID (try but don't fail if we can't)
+    const tenantId = await getTenantIdSmart(tokenData.access_token)
     
-    if (tenantId) {
-      console.log('🎉 SUCCESS: Got Tenant ID:', tenantId)
-    } else {
-      console.log('⚠️ WARNING: Could not get Tenant ID')
-      // We'll still save the token and try without Tenant ID
-    }
-    
-    // 3. Save to database (CRITICAL - SAVE TENANT ID IF WE HAVE IT)
+    // 3. Save to database
     console.log('💾 Saving to database...')
     const users = await pool.query('SELECT id FROM users LIMIT 1')
     
@@ -203,10 +139,10 @@ export async function GET(request: NextRequest) {
       userId,
       tokenData.access_token,
       tokenData.refresh_token || '',
-      tenantId || '' // Save Tenant ID if we have it
+      tenantId || ''
     ])
     
-    console.log('✅ Database updated with Tenant ID:', tenantId ? 'YES' : 'NO')
+    console.log('✅ Database updated')
     console.log('=== UPWORK CALLBACK COMPLETE ===')
     
     return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=true&message=Upwork+connected!')
