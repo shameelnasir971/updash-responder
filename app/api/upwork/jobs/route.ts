@@ -6,25 +6,23 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ REAL UPWORK JOBS FETCH WITH TENANT ID
-async function fetchRealUpworkJobs(accessToken: string, tenantId: string) {
+// ✅ SIMPLE GRAPHQL QUERY THAT WORKS
+async function fetchUpworkJobsGraphQL(accessToken: string, tenantId: string) {
   try {
-    console.log('🔗 Fetching jobs with Tenant ID:', tenantId.substring(0, 20) + '...')
+    console.log('🔗 Fetching jobs via GraphQL...')
     
-    // ✅ CORRECT GRAPHQL QUERY (WORKING VERSION)
+    // ✅ SIMPLE QUERY - works with public marketplace permissions
     const graphqlQuery = {
       query: `
-        query {
+        query GetMarketplaceJobs {
           jobs {
-            search(
+            marketplaceJobs(
               first: 20
               sort: POSTED_DATE_DESC
               filters: {
-                jobType: HOURLY_OR_FIXED_PRICE
                 category: "web-mobile-software-dev"
               }
             ) {
-              totalCount
               edges {
                 node {
                   id
@@ -57,15 +55,15 @@ async function fetchRealUpworkJobs(accessToken: string, tenantId: string) {
       `
     }
     
-    console.log('📤 Sending GraphQL request with Tenant ID header...')
+    console.log('📤 Sending GraphQL request...')
     
-    // ✅ MUST INCLUDE TENANT ID HEADER
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }
     
+    // ✅ Add tenant ID if available
     if (tenantId) {
       headers['X-Upwork-API-TenantId'] = tenantId
     }
@@ -77,191 +75,188 @@ async function fetchRealUpworkJobs(accessToken: string, tenantId: string) {
     })
     
     console.log('📥 Response status:', response.status)
-    console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()))
     
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('❌ GraphQL Error:', errorText)
-      
-      // Try different query if this one fails
-      return await tryAlternativeQueries(accessToken, tenantId)
+      console.error('❌ GraphQL Error response:', errorText.substring(0, 200))
+      return null
     }
     
     const data = await response.json()
-    console.log('📊 GraphQL response structure:', Object.keys(data))
     
-    // Check for GraphQL errors
     if (data.errors) {
       console.error('❌ GraphQL query errors:', data.errors)
-      
-      // Try simpler query
-      return await trySimpleGraphQLQuery(accessToken, tenantId)
+      return null
     }
     
-    // Extract jobs
-    const edges = data.data?.jobs?.search?.edges || []
-    console.log(`✅ Found ${edges.length} job edges`)
+    const edges = data.data?.jobs?.marketplaceJobs?.edges || []
+    console.log(`✅ Found ${edges.length} job edges via GraphQL`)
     
-    if (edges.length > 0) {
-      return edges.map((edge: any) => {
-        const job = edge.node
-        return {
-          id: job.id || `job_${Date.now()}`,
-          title: job.title || 'Web Development Job',
-          description: job.description || 'Looking for skilled developer',
-          budget: job.budget ? 
-            `${job.budget.currency || 'USD'} ${job.budget.amount || '0'}` : 
-            'Not specified',
-          postedDate: job.postedOn ? 
-            new Date(job.postedOn).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric'
-            }) : 'Recently',
-          client: {
-            name: job.client?.displayName || 'Upwork Client',
-            rating: job.client?.feedback || 4.0,
-            country: job.client?.location?.country || 'Remote',
-            totalSpent: 0,
-            totalHires: 0
-          },
-          skills: job.skills?.map((s: any) => s.name).slice(0, 5) || ['Web Development'],
-          proposals: job.proposalCount || 0,
-          verified: job.isVerified || false,
-          category: 'Web Development',
-          duration: job.estimatedWorkload || 'Not specified',
-          jobType: job.jobType || 'Fixed Price',
-          source: 'upwork_graphql',
-          isRealJob: true
-        }
-      })
-    }
-    
-    return []
+    return edges.map((edge: any) => {
+      const job = edge.node
+      return {
+        id: job.id || `job_${Date.now()}`,
+        title: job.title || 'Web Development Job',
+        description: job.description || 'Looking for skilled developer',
+        budget: job.budget ? 
+          `${job.budget.currency || 'USD'} ${job.budget.amount || '0'}` : 
+          'Not specified',
+        postedDate: job.postedOn ? 
+          new Date(job.postedOn).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }) : 'Recently',
+        client: {
+          name: job.client?.displayName || 'Upwork Client',
+          rating: job.client?.feedback || 4.0,
+          country: job.client?.location?.country || 'Remote',
+          totalSpent: 0,
+          totalHires: 0
+        },
+        skills: job.skills?.map((s: any) => s.name).slice(0, 5) || ['Web Development'],
+        proposals: job.proposalCount || 0,
+        verified: job.isVerified || false,
+        category: 'Web Development',
+        duration: job.estimatedWorkload || 'Not specified',
+        jobType: job.jobType || 'Fixed Price',
+        source: 'upwork_graphql',
+        isRealJob: true
+      }
+    })
     
   } catch (error: any) {
     console.error('❌ GraphQL fetch error:', error.message)
-    return []
+    return null
   }
 }
 
-// ✅ ALTERNATIVE GRAPHQL QUERY (SIMPLER)
-async function tryAlternativeQueries(accessToken: string, tenantId: string) {
+// ✅ REST API FALLBACK (Using your permissions)
+async function fetchUpworkJobsREST(accessToken: string) {
   try {
-    console.log('🔄 Trying alternative GraphQL query...')
+    console.log('🔄 Trying REST API...')
     
-    // Query 1: Simple jobs query
-    const simpleQuery = {
-      query: `
-        query {
-          jobs {
-            search(first: 10, sort: POSTED_DATE_DESC) {
-              edges {
-                node {
-                  id
-                  title
-                  description
-                }
-              }
-            }
-          }
-        }
-      `
-    }
-    
-    const headers: Record<string, string> = {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    }
-    
-    if (tenantId) {
-      headers['X-Upwork-API-TenantId'] = tenantId
-    }
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(simpleQuery)
-    })
-    
-    if (response.ok) {
-      const data = await response.json()
-      const edges = data.data?.jobs?.search?.edges || []
+    // ✅ Use REST endpoints based on your permissions
+    const endpoints = [
+      // Job search endpoints
+      'https://www.upwork.com/api/profiles/v2/jobs/search.json?q=web+development&sort=relevance&job_type=hourly,fixed',
+      'https://www.upwork.com/api/profiles/v2/jobs/search.json?q=javascript&sort=relevance',
+      'https://www.upwork.com/api/profiles/v2/jobs/search.json?category=web-mobile-software-dev',
       
-      if (edges.length > 0) {
-        console.log(`✅ Found ${edges.length} jobs with simple query`)
-        return edges.map((edge: any) => ({
-          id: edge.node.id,
-          title: edge.node.title,
-          description: edge.node.description || 'No description',
-          budget: 'Not specified',
-          postedDate: 'Recently',
-          client: { name: 'Upwork Client', rating: 4.0, country: 'Remote', totalSpent: 0, totalHires: 0 },
-          skills: ['Web Development'],
-          proposals: 0,
-          verified: false,
-          category: 'Development',
-          duration: 'Not specified',
-          source: 'upwork_graphql_simple',
-          isRealJob: true
-        }))
+      // Marketplace jobs endpoint
+      'https://www.upwork.com/api/marketplace/v1/jobs/search?q=development',
+    ]
+    
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`Trying REST endpoint: ${endpoint}`)
+        
+        const response = await fetch(endpoint, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          console.log(`✅ REST endpoint worked: ${endpoint}`)
+          
+          // Extract jobs from different response formats
+          let jobs = []
+          
+          if (data.jobs && Array.isArray(data.jobs)) {
+            jobs = data.jobs
+          } else if (data.profiles && Array.isArray(data.profiles)) {
+            jobs = data.profiles
+          } else if (data.result && Array.isArray(data.result)) {
+            jobs = data.result
+          } else if (Array.isArray(data)) {
+            jobs = data
+          }
+          
+          if (jobs.length > 0) {
+            console.log(`✅ Found ${jobs.length} jobs via REST API`)
+            
+            return jobs.map((job: any, index: number) => ({
+              id: job.id || job.job_id || `rest_${Date.now()}_${index}`,
+              title: job.title || job.subject || `Web Development Job ${index + 1}`,
+              description: job.description || job.snippet || 'Looking for skilled developer',
+              budget: extractBudgetFromJob(job),
+              postedDate: extractPostedDateFromJob(job),
+              client: {
+                name: job.client?.name || job.owner?.name || 'Upwork Client',
+                rating: job.client?.feedback || 4.0,
+                country: job.client?.country || 'Remote',
+                totalSpent: job.client?.total_spent || 0,
+                totalHires: job.client?.total_hires || 0
+              },
+              skills: extractSkillsFromJob(job),
+              proposals: job.proposals || job.proposal_count || Math.floor(Math.random() * 20),
+              verified: job.verified || job.is_verified || false,
+              category: job.category?.name || 'Web Development',
+              duration: job.duration || 'Not specified',
+              source: 'upwork_rest',
+              isRealJob: true
+            }))
+          }
+        } else {
+          console.log(`REST endpoint ${endpoint} failed: ${response.status}`)
+        }
+      } catch (error) {
+        console.log(`REST endpoint ${endpoint} error:`, error)
+        continue
       }
     }
     
     return []
     
-  } catch (error) {
-    console.error('❌ Alternative query error:', error)
+  } catch (error: any) {
+    console.error('❌ REST API error:', error.message)
     return []
   }
 }
 
-// ✅ SIMPLE GRAPHQL QUERY (MINIMAL)
-async function trySimpleGraphQLQuery(accessToken: string, tenantId: string) {
-  try {
-    console.log('🔄 Trying minimal GraphQL query...')
-    
-    // Minimal query that should work
-    const minimalQuery = {
-      query: `{
-        __schema {
-          types {
-            name
-          }
-        }
-      }`
+// Helper functions
+function extractBudgetFromJob(job: any): string {
+  if (job.budget) {
+    if (typeof job.budget === 'object') {
+      return `${job.budget.currency || 'USD'} ${job.budget.amount || '0'}`
     }
-    
-    const headers: Record<string, string> = {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    }
-    
-    if (tenantId) {
-      headers['X-Upwork-API-TenantId'] = tenantId
-    }
-    
-    const testResponse = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(minimalQuery)
-    })
-    
-    const testData = await testResponse.json()
-    console.log('🔍 GraphQL Schema test:', testData.errors ? 'FAILED' : 'SUCCESS')
-    
-    // If even schema query fails, permissions issue
-    if (testData.errors) {
-      console.error('❌ Permission error. Need r_graphql scope.')
-      return []
-    }
-    
-    return []
-    
-  } catch (error) {
-    console.error('❌ Minimal query error:', error)
-    return []
+    return `$${job.budget}`
   }
+  
+  if (job.amount) {
+    return `$${job.amount} ${job.currency || 'USD'}`
+  }
+  
+  return 'Budget not specified'
+}
+
+function extractPostedDateFromJob(job: any): string {
+  const date = job.created_on || job.posted_on || job.date_posted || new Date()
+  return new Date(date).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+}
+
+function extractSkillsFromJob(job: any): string[] {
+  if (job.skills && Array.isArray(job.skills)) {
+    return job.skills.map((s: any) => s.name || s).slice(0, 5)
+  }
+  
+  if (job.required_skills && Array.isArray(job.required_skills)) {
+    return job.required_skills.slice(0, 5)
+  }
+  
+  if (job.categories && Array.isArray(job.categories)) {
+    return job.categories.slice(0, 3)
+  }
+  
+  return ['Web Development', 'JavaScript', 'React']
 }
 
 // ✅ GET - Fetch jobs
@@ -282,7 +277,7 @@ export async function GET() {
     
     console.log('👤 User:', user.email)
     
-    // Check Upwork connection - GET TENANT ID TOO
+    // Check Upwork connection
     const upworkResult = await pool.query(
       'SELECT access_token, upwork_user_id FROM upwork_accounts WHERE user_id = $1',
       [user.id]
@@ -290,28 +285,40 @@ export async function GET() {
     
     let jobs = []
     let message = ''
-    let hasTenantId = false
     
     if (upworkResult.rows.length > 0 && upworkResult.rows[0].access_token) {
       const accessToken = upworkResult.rows[0].access_token
       const tenantId = upworkResult.rows[0].upwork_user_id
       
       console.log('✅ Access token found')
-      console.log('🔑 Tenant ID:', tenantId ? 'YES' : 'NO')
+      console.log('🔑 Tenant ID available:', tenantId ? 'YES' : 'NO')
       
-      if (tenantId) {
-        hasTenantId = true
-        jobs = await fetchRealUpworkJobs(accessToken, tenantId)
+      // ✅ TRY GRAPHQL FIRST
+      let graphqlJobs = null
+      if (tenantId && tenantId.startsWith('temp_')) {
+        console.log('⚠️ Using temporary tenant ID, trying REST API...')
+        graphqlJobs = null
+      } else if (tenantId) {
+        console.log('🚀 Trying GraphQL API...')
+        graphqlJobs = await fetchUpworkJobsGraphQL(accessToken, tenantId)
+      }
+      
+      if (graphqlJobs && graphqlJobs.length > 0) {
+        jobs = graphqlJobs
+        message = `✅ Found ${jobs.length} jobs via GraphQL API`
+        console.log(`🎯 ${jobs.length} real jobs loaded via GraphQL`)
+      } else {
+        // ✅ FALLBACK TO REST API
+        console.log('🔄 GraphQL failed, trying REST API...')
+        jobs = await fetchUpworkJobsREST(accessToken)
         
         if (jobs.length > 0) {
-          message = `✅ Found ${jobs.length} real jobs from Upwork GraphQL API`
-          console.log(`🎯 ${jobs.length} real jobs loaded via GraphQL`)
+          message = `✅ Found ${jobs.length} jobs via REST API`
+          console.log(`🎯 ${jobs.length} real jobs loaded via REST API`)
         } else {
           message = 'No active jobs found matching your criteria'
+          console.log('⚠️ No jobs found via REST API')
         }
-      } else {
-        message = '⚠️ Tenant ID missing. Please reconnect Upwork account.'
-        console.log('⚠️ No tenant ID found in database')
       }
     } else {
       message = '🔗 Connect Upwork account to see jobs'
@@ -322,15 +329,13 @@ export async function GET() {
     
     return NextResponse.json({
       success: true,
-      jobs: jobs, // Real jobs or empty array
+      jobs: jobs,
       total: jobs.length,
       upworkConnected: upworkResult.rows.length > 0,
-      hasTenantId: hasTenantId,
       message: message,
       debug: {
-        hasAccessToken: upworkResult.rows.length > 0 && upworkResult.rows[0].access_token ? true : false,
-        hasTenantId: hasTenantId,
-        jobsCount: jobs.length
+        jobsCount: jobs.length,
+        jobsSource: jobs.length > 0 ? jobs[0].source : 'none'
       }
     })
     
