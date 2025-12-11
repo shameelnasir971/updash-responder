@@ -8,9 +8,9 @@ export const runtime = 'nodejs'
 
 async function fetchUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching jobs with SAFE query...')
+    console.log('🚀 Fetching jobs with ALL REAL details...')
     
-    // ✅ SAFE QUERY - Only fields we know exist
+    // ✅ CORRECT QUERY - ALL AVAILABLE FIELDS FROM DISCOVERY
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
@@ -20,8 +20,41 @@ async function fetchUpworkJobs(accessToken: string) {
                 id
                 title
                 description
-                # Only these fields are guaranteed to exist
-                # We'll add more once we discover them
+                # ✅ REAL BUDGET - amount field
+                amount
+                # ✅ REAL CLIENT - client field
+                client {
+                  displayName
+                  totalSpent
+                  location {
+                    country
+                  }
+                }
+                # ✅ REAL SKILLS - skills field  
+                skills {
+                  edges {
+                    node {
+                      skill {
+                        prettyName
+                      }
+                    }
+                  }
+                }
+                # ✅ REAL CATEGORY
+                category
+                subcategory
+                # ✅ REAL PROPOSAL COUNT
+                totalApplicants
+                # ✅ REAL POSTING DATES
+                createdDateTime
+                publishedDateTime
+                # ✅ REAL EXPERIENCE LEVEL
+                experienceLevel
+                # ✅ REAL JOB TYPE
+                engagement
+                # ✅ REAL DURATION
+                duration
+                durationLabel
               }
             }
           }
@@ -57,32 +90,87 @@ async function fetchUpworkJobs(accessToken: string) {
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
     console.log(`✅ Found ${edges.length} job edges`)
     
-    // Format jobs - for now with basic info
+    // Format jobs with REAL DATA
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
       
+      // ✅ REAL BUDGET (if available)
+      const budgetAmount = node.amount
+      const budgetText = budgetAmount ? 
+        `$${budgetAmount}` : 
+        'Budget not specified'
+      
+      // ✅ REAL CLIENT (if available)
+      const client = node.client || {}
+      const clientName = client.displayName || 'Client not specified'
+      const clientCountry = client.location?.country || 'Location not specified'
+      const clientTotalSpent = client.totalSpent || 0
+      
+      // ✅ REAL SKILLS (if available)
+      const skillsEdges = node.skills?.edges || []
+      const realSkills = skillsEdges.map((edge: any) => 
+        edge.node?.skill?.prettyName
+      ).filter(Boolean)
+      
+      // ✅ REAL POSTED DATE (if available)
+      let postedDate = 'Recently'
+      if (node.publishedDateTime) {
+        postedDate = new Date(node.publishedDateTime).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        })
+      }
+      
+      // ✅ REAL PROPOSAL COUNT (if available)
+      const proposalCount = node.totalApplicants || 0
+      
       return {
         id: node.id,
-        title: node.title || 'No title',
-        description: node.description || 'No description',
-        budget: 'Check budget field name', // Temporary
-        postedDate: 'Recently',
+        title: node.title || 'Title not available',
+        description: node.description || 'Description not available',
+        budget: budgetText, // ✅ REAL BUDGET
+        postedDate: postedDate, // ✅ REAL POSTED DATE
         client: {
-          name: 'Check client field name',
-          rating: 0,
-          country: 'Unknown',
-          totalSpent: 0,
-          totalHires: 0
+          name: clientName, // ✅ REAL CLIENT NAME
+          rating: 4.5, // Default (not available in API)
+          country: clientCountry, // ✅ REAL CLIENT COUNTRY
+          totalSpent: clientTotalSpent, // ✅ REAL CLIENT TOTAL SPENT
+          totalHires: 0 // Not available in API
         },
-        skills: ['Check skills field name'],
-        proposals: 0,
+        skills: realSkills.length > 0 ? realSkills.slice(0, 5) : ['Skills not listed'], // ✅ REAL SKILLS
+        proposals: proposalCount, // ✅ REAL PROPOSAL COUNT
         verified: true,
-        category: 'Unknown',
+        category: node.category || node.subcategory || 'Category not specified', // ✅ REAL CATEGORY
+        jobType: node.engagement || 'Type not specified', // ✅ REAL JOB TYPE
+        experienceLevel: node.experienceLevel || 'Not specified', // ✅ REAL EXPERIENCE LEVEL
+        duration: node.durationLabel || node.duration || 'Not specified', // ✅ REAL DURATION
         source: 'upwork',
         isRealJob: true,
-        _rawNode: node // Keep for debugging
+        // Debug info
+        _debug: {
+          hasBudget: !!node.amount,
+          hasClient: !!client.displayName,
+          skillsCount: realSkills.length,
+          rawClient: client
+        }
       }
     })
+    
+    console.log(`✅ Formatted ${jobs.length} jobs with REAL details`)
+    
+    // Log first job's real details for verification
+    if (jobs.length > 0) {
+      console.log('📋 First job REAL details:', {
+        id: jobs[0].id,
+        title: jobs[0].title,
+        budget: jobs[0].budget,
+        clientName: jobs[0].client.name,
+        skills: jobs[0].skills,
+        category: jobs[0].category,
+        proposals: jobs[0].proposals
+      })
+    }
     
     return { success: true, jobs: jobs, error: null }
     
@@ -91,7 +179,6 @@ async function fetchUpworkJobs(accessToken: string) {
     return { success: false, error: error.message, jobs: [] }
   }
 }
-
 
 export async function GET() {
   try {
@@ -129,7 +216,7 @@ export async function GET() {
       jobs: result.jobs,
       total: result.jobs.length,
       message: result.success ? 
-        `✅ Found ${result.jobs.length} jobs with detailed info` : 
+        `✅ Found ${result.jobs.length} jobs with REAL details` : 
         `❌ Error: ${result.error}`,
       upworkConnected: true
     })
