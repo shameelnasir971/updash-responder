@@ -8,9 +8,9 @@ export const runtime = 'nodejs'
 
 async function fetchUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching COMPLETE job details with CORRECT fields...')
+    console.log('🚀 Fetching jobs (Money fields without .amount)...')
     
-    // ✅ COMPLETE & CORRECT QUERY - All fields verified from schema discovery
+    // ✅ SAFE QUERY - Money fields ko direct use karo (without .amount)
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
@@ -20,20 +20,12 @@ async function fetchUpworkJobs(accessToken: string) {
                 id
                 title
                 description
-                # ✅ REAL BUDGET DETAILS
-                amount {
-                  amount
-                  currencyCode
-                }
-                hourlyBudgetMin {
-                  amount
-                  currencyCode
-                }
-                hourlyBudgetMax {
-                  amount
-                  currencyCode
-                }
-                # ✅ REAL CLIENT DETAILS
+                # ✅ Money fields directly (no .amount subfield)
+                amount
+                hourlyBudgetMin
+                hourlyBudgetMax
+                weeklyBudget
+                # ✅ Client info
                 client {
                   name
                   totalSpent
@@ -46,26 +38,21 @@ async function fetchUpworkJobs(accessToken: string) {
                     count
                   }
                 }
-                # ✅ REAL SKILLS
+                # ✅ Skills
                 skills {
                   name
                   experienceLevel
                 }
-                # ✅ REAL PROPOSAL COUNT
+                # ✅ Other important fields
                 totalApplicants
-                # ✅ REAL CATEGORY
                 category
                 subcategory
-                # ✅ REAL JOB TYPE & DURATION
                 engagement
                 duration
                 durationLabel
-                # ✅ POSTED DATE
                 createdDateTime
                 publishedDateTime
-                # ✅ EXPERIENCE LEVEL
                 experienceLevel
-                # ✅ ENTERPRISE FLAG
                 enterprise
               }
             }
@@ -92,88 +79,62 @@ async function fetchUpworkJobs(accessToken: string) {
     }
     
     const data = await response.json()
-    console.log('✅ Response received with complete details')
     
     if (data.errors) {
       console.error('❌ GraphQL errors:', JSON.stringify(data.errors, null, 2))
+      
+      // Agar Money fields mein error aaye, toh unhein hata do
+      if (data.errors[0]?.message?.includes('Money')) {
+        console.log('⚠️ Money field error, trying without Money fields...')
+        
+        // Phir se try karo sirf basic fields se
+        return fetchBasicJobs(accessToken)
+      }
+      
       return { success: false, error: data.errors[0]?.message, jobs: [] }
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} job edges with complete data`)
+    console.log(`✅ Found ${edges.length} job edges`)
     
-    // Format jobs with REAL DATA from correct fields
+    // Format jobs
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
-      
-      // ✅ Extract REAL budget (handle hourly vs fixed)
-      let budgetText = 'Budget not specified'
-      if (node.amount?.amount) {
-        budgetText = `${node.amount.currencyCode || 'USD'} ${node.amount.amount}`
-      } else if (node.hourlyBudgetMin?.amount && node.hourlyBudgetMax?.amount) {
-        budgetText = `Hourly: ${node.hourlyBudgetMin.amount}-${node.hourlyBudgetMax.amount} ${node.hourlyBudgetMin.currencyCode || 'USD'}`
-      }
-      
-      // ✅ Extract REAL client info
       const client = node.client || {}
-      const clientRating = client.feedback?.score || 4.0
-      const clientTotalSpent = client.totalSpent || 0
-      const clientTotalHires = client.totalHired || 0
-      const clientCountry = client.location?.country || 'Remote'
       
-      // ✅ Extract REAL skills
-      const realSkills = node.skills?.map((skill: any) => skill.name).filter(Boolean) || 
-                        ['Skills not listed']
-      
-      // ✅ Extract REAL posted date
-      const postedDate = node.createdDateTime || node.publishedDateTime
-      const formattedDate = postedDate ? 
-        new Date(postedDate).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }) : 
-        'Recently'
+      // Debug: Check what we actually got
+      console.log('Node sample:', {
+        id: node.id,
+        amount: node.amount,
+        hourlyBudgetMin: node.hourlyBudgetMin,
+        client: node.client
+      })
       
       return {
         id: node.id,
         title: node.title || 'No title',
         description: node.description || 'No description',
-        budget: budgetText, // ✅ REAL BUDGET
-        postedDate: formattedDate, // ✅ REAL POSTED DATE
+        budget: 'To be determined', // Temporary
+        postedDate: node.createdDateTime ? 
+          new Date(node.createdDateTime).toLocaleDateString() : 
+          'Recently',
         client: {
-          name: client.name || 'Client name not specified', // ✅ REAL CLIENT NAME
-          rating: clientRating, // ✅ REAL CLIENT RATING
-          country: clientCountry, // ✅ REAL COUNTRY
-          totalSpent: clientTotalSpent, // ✅ REAL TOTAL SPENT
-          totalHires: clientTotalHires // ✅ REAL TOTAL HIRES
+          name: client.name || 'Client name not specified',
+          rating: client.feedback?.score || 4.0,
+          country: client.location?.country || 'Remote',
+          totalSpent: client.totalSpent || 0,
+          totalHires: client.totalHired || 0
         },
-        skills: realSkills.slice(0, 5), // ✅ REAL SKILLS
-        proposals: node.totalApplicants || 0, // ✅ REAL PROPOSAL COUNT
+        skills: node.skills?.map((s: any) => s.name).filter(Boolean) || ['Skills not listed'],
+        proposals: node.totalApplicants || 0,
         verified: node.enterprise || true,
-        category: node.category || node.subcategory || 'General', // ✅ REAL CATEGORY
-        jobType: node.engagement || node.durationLabel || 'Not specified', // ✅ REAL JOB TYPE
-        experienceLevel: node.experienceLevel || 'Not specified',
+        category: node.category || node.subcategory || 'General',
+        jobType: node.engagement || node.durationLabel || 'Not specified',
         source: 'upwork',
-        isRealJob: true
+        isRealJob: true,
+        _raw: node // For debugging
       }
     })
-    
-    console.log(`✅ Formatted ${jobs.length} jobs with complete real details`)
-    
-    // Log first job's real details for verification
-    if (jobs.length > 0) {
-      console.log('📋 First job COMPLETE details:', {
-        id: jobs[0].id,
-        title: jobs[0].title,
-        budget: jobs[0].budget,
-        clientName: jobs[0].client.name,
-        clientRating: jobs[0].client.rating,
-        skills: jobs[0].skills,
-        proposals: jobs[0].proposals,
-        category: jobs[0].category
-      })
-    }
     
     return { success: true, jobs: jobs, error: null }
     
@@ -183,9 +144,85 @@ async function fetchUpworkJobs(accessToken: string) {
   }
 }
 
+// Alternative function if Money fields fail
+async function fetchBasicJobs(accessToken: string) {
+  try {
+    console.log('🔄 Trying BASIC query without Money fields...')
+    
+    const basicQuery = {
+      query: `
+        query GetBasicJobs {
+          marketplaceJobPostingsSearch {
+            edges {
+              node {
+                id
+                title
+                description
+                client {
+                  name
+                }
+                totalApplicants
+                category
+                createdDateTime
+              }
+            }
+          }
+        }
+      `
+    }
+    
+    const response = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(basicQuery)
+    })
+    
+    const data = await response.json()
+    
+    if (data.errors) {
+      return { success: false, error: data.errors[0]?.message, jobs: [] }
+    }
+    
+    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
+    
+    const jobs = edges.map((edge: any) => {
+      const node = edge.node || {}
+      return {
+        id: node.id,
+        title: node.title || 'No title',
+        description: node.description || 'No description',
+        budget: 'Budget info available after Money type discovery',
+        postedDate: node.createdDateTime ? 
+          new Date(node.createdDateTime).toLocaleDateString() : 
+          'Recently',
+        client: {
+          name: node.client?.name || 'Client',
+          rating: 4.0,
+          country: 'Remote',
+          totalSpent: 0,
+          totalHires: 0
+        },
+        skills: ['Skills info coming soon'],
+        proposals: node.totalApplicants || 0,
+        verified: true,
+        category: node.category || 'General',
+        source: 'upwork',
+        isRealJob: true
+      }
+    })
+    
+    return { success: true, jobs: jobs, error: null }
+  } catch (error: any) {
+    return { success: false, error: error.message, jobs: [] }
+  }
+}
+
 export async function GET() {
   try {
-    console.log('=== JOBS API CALLED (COMPLETE VERSION) ===')
+    console.log('=== JOBS API CALLED ===')
     
     const user = await getCurrentUser()
     if (!user) {
@@ -219,7 +256,7 @@ export async function GET() {
       jobs: result.jobs,
       total: result.jobs.length,
       message: result.success ? 
-        `✅ Success! Loaded ${result.jobs.length} jobs with complete real details` : 
+        `✅ Found ${result.jobs.length} jobs (Money type discovery in progress)` : 
         `❌ Error: ${result.error}`,
       upworkConnected: true
     })
