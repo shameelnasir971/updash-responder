@@ -6,20 +6,18 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ CORRECT Query - `marketplaceJobPostingsSearch` use karo
-async function fetchUpworkJobs(accessToken: string) {
+// ✅ CORRECTED & WORKING GraphQL Query for Upwork
+async function fetchRealUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching jobs via marketplaceJobPostingsSearch...')
-    
-    // ✅ YEH WORKING QUERY HAI
+    console.log('🚀 Fetching jobs via CORRECTED query...')
+
+    // ✅ CORRECT QUERY STRUCTURE - NO 'input:' object
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
           marketplaceJobPostingsSearch(
-            input: {
-              paging: { first: 20 }
-              sort: { field: CREATED_AT, direction: DESC }
-            }
+            paging: { first: 20 }
+            sort: { field: CREATED_AT, direction: DESC }
           ) {
             totalCount
             edges {
@@ -32,7 +30,6 @@ async function fetchUpworkJobs(accessToken: string) {
                   title
                   description
                   category { title }
-                  subcategory { title }
                   budget { amount currencyCode }
                   client {
                     displayName
@@ -42,7 +39,6 @@ async function fetchUpworkJobs(accessToken: string) {
                   skills { skill { prettyName } }
                   proposalCount
                   postedOn
-                  jobType
                 }
               }
             }
@@ -50,7 +46,7 @@ async function fetchUpworkJobs(accessToken: string) {
         }
       `
     }
-    
+
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
       headers: {
@@ -59,24 +55,27 @@ async function fetchUpworkJobs(accessToken: string) {
       },
       body: JSON.stringify(graphqlQuery)
     })
-    
+
+    console.log('📥 Response status:', response.status)
+
     if (!response.ok) {
       const error = await response.text()
-      console.error('❌ API error:', error.substring(0, 300))
+      console.error('API error:', error.substring(0, 300))
       return { success: false, error: 'API request failed', jobs: [] }
     }
-    
+
     const data = await response.json()
-    console.log('✅ API response received')
-    
+    console.log('GraphQL Response Keys:', Object.keys(data))
+
+    // GraphQL returns 200 even for errors, so check the errors array[citation:2]
     if (data.errors) {
-      console.error('❌ GraphQL errors:', data.errors)
+      console.error('GraphQL errors:', data.errors)
       return { success: false, error: data.errors[0]?.message, jobs: [] }
     }
-    
+
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
     console.log(`✅ Found ${edges.length} job edges`)
-    
+
     const jobs = edges.map((edge: any) => {
       const job = edge.node?.jobPosting || {}
       return {
@@ -93,24 +92,22 @@ async function fetchUpworkJobs(accessToken: string) {
           name: job.client?.displayName || 'Client',
           rating: 4.5,
           country: job.client?.location?.country || 'Remote',
-          totalSpent: job.client?.totalSpent || 0,
-          totalHires: 0
+          totalSpent: job.client?.totalSpent || 0
         },
         skills: job.skills?.map((s: any) => s.skill?.prettyName).filter(Boolean) || 
                 ['Web Development'],
         proposals: job.proposalCount || 0,
         verified: true,
         category: job.category?.title || 'Development',
-        jobType: job.jobType || 'Fixed Price',
         source: 'upwork',
         isRealJob: true
       }
     })
-    
+
     return { success: true, jobs: jobs, error: null }
-    
+
   } catch (error: any) {
-    console.error('❌ Fetch error:', error.message)
+    console.error('Fetch error:', error.message)
     return { success: false, error: error.message, jobs: [] }
   }
 }
@@ -118,45 +115,44 @@ async function fetchUpworkJobs(accessToken: string) {
 export async function GET() {
   try {
     console.log('=== JOBS API CALLED ===')
-    
+
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ 
-        error: 'Not authenticated' 
-      }, { status: 401 })
+      // Return 401 properly if not authenticated
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
-    
-    console.log('👤 User:', user.email)
-    
+
+    console.log('User:', user.email)
+
     // Get token
     const upworkResult = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-    
+
     if (upworkResult.rows.length === 0) {
       return NextResponse.json({
-        success: true,
+        success: false,
         jobs: [],
         message: '⚠️ Connect Upwork account first',
         upworkConnected: false
       })
     }
-    
+
     const accessToken = upworkResult.rows[0].access_token
-    console.log('✅ Token found, length:', accessToken?.length || 0)
-    
-    if (!accessToken || accessToken.length < 10) {
+    console.log('Token length:', accessToken?.length || 0)
+
+    if (!accessToken) {
       return NextResponse.json({
         success: false,
         jobs: [],
-        message: 'Invalid token'
+        message: 'Token is empty in database'
       })
     }
-    
+
     // Fetch jobs
-    const result = await fetchUpworkJobs(accessToken)
-    
+    const result = await fetchRealUpworkJobs(accessToken)
+
     return NextResponse.json({
       success: result.success,
       jobs: result.jobs,
@@ -166,9 +162,9 @@ export async function GET() {
         `Error: ${result.error}`,
       upworkConnected: true
     })
-    
+
   } catch (error: any) {
-    console.error('❌ Main error:', error)
+    console.error('Main error:', error)
     return NextResponse.json({
       success: false,
       jobs: [],
