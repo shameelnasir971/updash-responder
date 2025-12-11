@@ -1,4 +1,4 @@
-// app/api/upwork/auth/route.ts - SUPER SIMPLE VERSION
+// app/api/upwork/auth/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'

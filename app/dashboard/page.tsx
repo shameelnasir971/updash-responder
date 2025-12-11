@@ -103,22 +103,26 @@ export default function Dashboard() {
     }
   }
 
-  const handleConnectUpwork = async () => {
-    setConnecting(true)
+const handleConnectUpwork = async () => {
+  setConnecting(true)
+  
+  try {
+    // ✅ Use server-generated OAuth URL instead of hardcoded
+    const response = await fetch('/api/upwork/auth')
+    const data = await response.json()
     
-    try {
-      const clientId = 'b2cf4bfa369cac47083f664358d3accb'
-      const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
-      
-      const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
-      
-      window.location.href = authUrl
-      
-    } catch (error: any) {
-      alert('Error: ' + error.message)
+    if (data.success && data.url) {
+      window.location.href = data.url
+    } else {
+      alert('Failed to generate OAuth URL. Check console.')
+      console.error('OAuth error:', data.error)
       setConnecting(false)
     }
+  } catch (error: any) {
+    alert('Error: ' + error.message)
+    setConnecting(false)
   }
+}
 
 
   if (loading) {
