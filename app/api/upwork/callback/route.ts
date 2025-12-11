@@ -5,34 +5,80 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// ✅ FUNCTION: Get Tenant ID from GraphQL
+async function getTenantIdFromGraphQL(accessToken: string) {
+  try {
+    console.log('🔍 Getting Tenant ID via GraphQL...')
+    
+    // GraphQL query to get current user ID
+    const query = {
+      query: `
+        query GetMyInfo {
+          me {
+            id
+            displayName
+          }
+        }
+      `
+    }
+    
+    const response = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(query)
+    })
+    
+    if (!response.ok) {
+      console.log(`❌ GraphQL status: ${response.status}`)
+      return null
+    }
+    
+    const data = await response.json()
+    console.log('📊 GraphQL response:', data)
+    
+    // Extract user ID from response
+    if (data.data?.me?.id) {
+      const tenantId = data.data.me.id
+      console.log('✅ Found Tenant ID:', tenantId)
+      return tenantId
+    }
+    
+    return null
+    
+  } catch (error) {
+    console.error('❌ GraphQL error:', error)
+    return null
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get('code')
-    const error = searchParams.get('error')
-
-    console.log('=== UPWORK CALLBACK START ===')
-
-    if (error || !code) {
-      console.error('❌ OAuth failed or no code received')
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=OAuth+failed')
+    
+    if (!code) {
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+code')
     }
-
-    console.log('✅ Authorization code received')
-
-    // Environment check
+    
+    console.log('=== UPWORK CALLBACK START ===')
+    
+    // Environment variables
     const clientId = process.env.UPWORK_CLIENT_ID
     const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
-
+    
     if (!clientId || !clientSecret) {
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=Server+configuration+error')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=Config+missing')
     }
-
-    // ✅ STEP 1: Exchange code for tokens (THIS IS CORRECT[citation:1])
-    console.log('🔄 Exchanging code for access token...')
+    
+    // ✅ 1. Exchange code for token
+    console.log('🔄 Exchanging code for token...')
     const tokenUrl = 'https://www.upwork.com/api/v3/oauth2/token'
-
+    
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       code: code,
@@ -40,38 +86,39 @@ export async function GET(request: NextRequest) {
       client_id: clientId,
       client_secret: clientSecret,
     })
-
+    
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params
     })
-
+    
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
-      console.error('❌ Token exchange failed:', errorText.substring(0, 200))
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=Token+exchange+failed')
+      console.error('❌ Token exchange failed:', errorText)
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=Token+failed')
     }
-
+    
     const tokenData = await tokenResponse.json()
-    console.log('✅ Token exchange SUCCESSFUL!')
-
-    // ❗ **CRITICAL CHANGE: DO NOT FETCH TENANT ID**
-    // The old endpoint (/api/auth/v1/info) is gone (410 error).
-    // We cannot get the Tenant ID without proper GraphQL permissions.
-    // This is FINE because the REST Jobs API only needs an access token.
-    console.log('⚠️ Skipping Tenant ID fetch. Using REST API only.')
-
-    // ✅ STEP 2: Save to database (save NULL for tenant ID)
+    console.log('✅ Token received')
+    
+    // ✅ 2. Get Tenant ID via GraphQL (IMPORTANT!)
+    const tenantId = await getTenantIdFromGraphQL(tokenData.access_token)
+    
+    if (!tenantId) {
+      console.log('⚠️ Could not get Tenant ID, will try without it')
+    }
+    
+    // ✅ 3. Save to database
     console.log('💾 Saving to database...')
     const users = await pool.query('SELECT id FROM users LIMIT 1')
-
+    
     if (users.rows.length === 0) {
-      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+user+account+found')
+      return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=No+user')
     }
-
+    
     const userId = users.rows[0].id
-
+    
     const insertQuery = `
       INSERT INTO upwork_accounts (user_id, access_token, refresh_token, upwork_user_id, created_at)
       VALUES ($1, $2, $3, $4, NOW())
@@ -83,21 +130,21 @@ export async function GET(request: NextRequest) {
         updated_at = NOW()
       RETURNING id
     `
-
+    
     await pool.query(insertQuery, [
       userId,
       tokenData.access_token,
       tokenData.refresh_token || '',
-      null // ⬅️ We are saving NULL for upwork_user_id (Tenant ID)
+      tenantId // Save the Tenant ID
     ])
-
-    console.log('✅ Connection saved successfully (REST mode)')
+    
+    console.log('✅ Database updated')
     console.log('=== UPWORK CALLBACK COMPLETE ===')
-
-    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+REST+API+connected!')
-
+    
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=true&message=Upwork+connected!')
+    
   } catch (error: any) {
-    console.error('❌ CALLBACK UNEXPECTED ERROR:', error.message)
-    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(`Error: ${error.message}`))
+    console.error('❌ Callback error:', error.message)
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + encodeURIComponent(error.message))
   }
 }
