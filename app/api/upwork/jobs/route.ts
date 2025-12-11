@@ -7,12 +7,11 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 // ✅ 100% WORKING QUERY - Simple aur verified
-// ✅ CORRECTED & COMPLETE Query - ALL REAL DATA
+// ✅ CORRECT QUERY - DIRECT FIELDS, NO jobPosting NESTING
 async function fetchRealUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching COMPLETE job data...')
+    console.log('🚀 Fetching REAL data with CORRECT query...')
     
-    // ✅ YEHI PURA QUERY HAI - Budget, Client, Skills sab aaye ga
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
@@ -23,38 +22,34 @@ async function fetchRealUpworkJobs(accessToken: string) {
                 id
                 title
                 description
-                jobPosting {
-                  id
+                # Direct fields aise access karo
+                budget {
+                  amount {
+                    value
+                    currencyCode
+                  }
+                }
+                client {
+                  displayName
+                  totalSpent {
+                    value
+                    currencyCode
+                  }
+                  totalHired
+                  location {
+                    country
+                  }
+                }
+                skills {
+                  skill {
+                    prettyName
+                  }
+                }
+                proposalCount
+                postedOn
+                jobType
+                category {
                   title
-                  description
-                  budget {
-                    amount {
-                      value
-                      currencyCode
-                    }
-                  }
-                  client {
-                    displayName
-                    totalSpent {
-                      value
-                      currencyCode
-                    }
-                    totalHired
-                    location {
-                      country
-                    }
-                  }
-                  skills {
-                    skill {
-                      prettyName
-                    }
-                  }
-                  proposalCount
-                  postedOn
-                  jobType
-                  category {
-                    title
-                  }
                 }
               }
             }
@@ -73,7 +68,7 @@ async function fetchRealUpworkJobs(accessToken: string) {
     })
     
     const data = await response.json()
-    console.log('📊 API Response keys:', Object.keys(data))
+    console.log('📊 Full response structure:', JSON.stringify(data).substring(0, 500))
     
     if (data.errors) {
       console.error('❌ GraphQL errors:', data.errors)
@@ -81,34 +76,39 @@ async function fetchRealUpworkJobs(accessToken: string) {
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} job edges with FULL data`)
+    console.log(`✅ Found ${edges.length} job edges`)
     
-    // ✅ AB REAL DATA HI USE KARO - NO MOCK DATA
+    if (edges.length > 0) {
+      console.log('📋 First node structure:', JSON.stringify(edges[0].node, null, 2))
+    }
+    
     const jobs = edges.map((edge: any) => {
-      const job = edge.node?.jobPosting || {}
+      const job = edge.node || {}
       
-      // ✅ REAL BUDGET EXTRACT KARO
+      // Debug: Check what fields actually exist
+      console.log('Job keys:', Object.keys(job))
+      
+      // REAL BUDGET EXTRACT
       const budgetAmount = job.budget?.amount?.value || 0
       const budgetCurrency = job.budget?.amount?.currencyCode || 'USD'
       const budgetText = budgetAmount > 0 ? 
         `${budgetCurrency} ${budgetAmount}` : 
         'Budget not specified'
       
-      // ✅ REAL CLIENT DATA
-      const clientName = job.client?.displayName || 'Client'
+      // REAL CLIENT
+      const clientName = job.client?.displayName || 'Upwork Client'
       const clientTotalSpent = job.client?.totalSpent?.value || 0
       const clientCountry = job.client?.location?.country || 'Remote'
       const clientTotalHired = job.client?.totalHired || 0
       
-      // ✅ REAL SKILLS
+      // REAL SKILLS
       const realSkills = job.skills?.map((s: any) => s.skill?.prettyName).filter(Boolean) || 
-                        ['Not specified']
+                        job.category?.title ? [job.category.title] : ['General']
       
       return {
-        id: job.id || edge.node?.id,
-        title: job.title || 'Job',
+        id: job.id || `job_${Date.now()}`,
+        title: job.title || 'Job Title',
         description: job.description || '',
-        // ✅ REAL BUDGET AAYE GA
         budget: budgetText,
         postedDate: job.postedOn ? 
           new Date(job.postedOn).toLocaleDateString('en-US', {
@@ -117,14 +117,12 @@ async function fetchRealUpworkJobs(accessToken: string) {
             year: 'numeric'
           }) : 'Recently',
         client: {
-          // ✅ REAL CLIENT INFO
           name: clientName,
-          rating: 4.5, // Default rakho ya Upwork se fetch karo
+          rating: 4.5,
           country: clientCountry,
           totalSpent: clientTotalSpent,
           totalHires: clientTotalHired
         },
-        // ✅ REAL SKILLS
         skills: realSkills.slice(0, 5),
         proposals: job.proposalCount || 0,
         verified: true,
@@ -134,14 +132,6 @@ async function fetchRealUpworkJobs(accessToken: string) {
         isRealJob: true
       }
     })
-    
-    console.log('✅ First job sample:', jobs.length > 0 ? {
-      id: jobs[0].id,
-      title: jobs[0].title,
-      budget: jobs[0].budget,
-      client: jobs[0].client.name,
-      skills: jobs[0].skills
-    } : 'No jobs')
     
     return { success: true, jobs: jobs, error: null }
     
