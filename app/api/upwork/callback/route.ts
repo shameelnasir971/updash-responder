@@ -5,147 +5,30 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ FIXED: Get Upwork User Info (Tenant ID)
-async function getUpworkUserInfo(accessToken: string) {
+// ✅ SIMPLE FUNCTION: Get Tenant ID from JWT Token
+function extractUserIdFromToken(accessToken: string): string | null {
   try {
-    console.log('🔍 Fetching Upwork user info for Tenant ID...')
-    
-    // ✅ CORRECT ENDPOINT for user info
-    const endpoints = [
-      'https://www.upwork.com/api/hr/v2/users/me.json', // ✅ BEST
-      'https://api.upwork.com/api/hr/v2/users/me.json',
-      'https://www.upwork.com/api/auth/v1/info'
-    ]
-    
-    for (const endpoint of endpoints) {
+    // Check if token is JWT format (has 3 parts separated by dots)
+    if (accessToken.split('.').length === 3) {
       try {
-        console.log(`Trying endpoint: ${endpoint}`)
+        const payload = JSON.parse(
+          Buffer.from(accessToken.split('.')[1], 'base64').toString()
+        )
         
-        const response = await fetch(endpoint, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          }
-        })
-        
-        console.log(`Response status: ${response.status}`)
-        
-        if (response.ok) {
-          const data = await response.json()
-          console.log('✅ User info response:', data)
-          
-          // ✅ Extract user ID from response
-          if (data.user && data.user.id) {
-            console.log('✅ Found user ID in user.user.id:', data.user.id)
-            return data.user.id
-          }
-          if (data.id) {
-            console.log('✅ Found user ID in id:', data.id)
-            return data.id
-          }
-          if (data.profile && data.profile.id) {
-            console.log('✅ Found user ID in profile.id:', data.profile.id)
-            return data.profile.id
-          }
-          
-          // Try nested structure
-          if (data.result && data.result.user && data.result.user.id) {
-            console.log('✅ Found user ID in result.user.id:', data.result.user.id)
-            return data.result.user.id
-          }
-          
-          console.log('❌ Could not find user ID in response structure:', Object.keys(data))
-        } else {
-          const errorText = await response.text()
-          console.log(`Endpoint ${endpoint} failed: ${errorText.substring(0, 200)}`)
-        }
-      } catch (e: any) {
-        console.log(`Endpoint ${endpoint} error: ${e.message}`)
-        continue
+        // Try different possible fields for user ID
+        if (payload.sub) return payload.sub
+        if (payload.user_id) return payload.user_id
+        if (payload.id) return payload.id
+        if (payload.uid) return payload.uid
+      } catch (e) {
+        console.log('❌ Could not decode JWT')
       }
     }
     
-    // ✅ Alternative: Decode JWT token
-    console.log('🔄 Trying to decode JWT token for user ID...')
-    try {
-      // Access token might be JWT
-      const tokenParts = accessToken.split('.')
-      if (tokenParts.length === 3) {
-        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString())
-        console.log('JWT payload:', payload)
-        
-        if (payload.sub) {
-          console.log('✅ Got user ID from JWT sub:', payload.sub)
-          return payload.sub
-        }
-        if (payload.user_id) {
-          console.log('✅ Got user ID from JWT user_id:', payload.user_id)
-          return payload.user_id
-        }
-        if (payload.id) {
-          console.log('✅ Got user ID from JWT id:', payload.id)
-          return payload.id
-        }
-      }
-    } catch (jwtError) {
-      console.log('❌ Could not decode JWT token')
-    }
-    
     return null
-    
-  } catch (error: any) {
-    console.error('❌ User info fetch error:', error.message)
+  } catch (error) {
+    console.error('Token extraction error:', error)
     return null
-  }
-}
-
-// ✅ TEST CONNECTION FUNCTION
-async function testGraphQLConnection(accessToken: string, tenantId: string) {
-  try {
-    console.log('🚀 Testing GraphQL connection with Tenant ID...')
-    
-    const testQuery = {
-      query: `{
-        __schema {
-          queryType {
-            name
-          }
-        }
-      }`
-    }
-    
-    const headers: Record<string, string> = {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    }
-    
-    if (tenantId) {
-      headers['X-Upwork-API-TenantId'] = tenantId
-    }
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(testQuery)
-    })
-    
-    console.log('📊 GraphQL test status:', response.status)
-    
-    if (response.ok) {
-      const data = await response.json()
-      console.log('✅ GraphQL test successful!')
-      console.log('Schema available:', !data.errors)
-      return true
-    } else {
-      const errorText = await response.text()
-      console.log('❌ GraphQL test failed:', errorText.substring(0, 200))
-      return false
-    }
-  } catch (error: any) {
-    console.log('❌ GraphQL test error:', error.message)
-    return false
   }
 }
 
@@ -227,18 +110,18 @@ export async function GET(request: NextRequest) {
     console.log('✅ Token exchange SUCCESSFUL!')
     console.log('🔑 Access token (first 30 chars):', tokenData.access_token.substring(0, 30) + '...')
 
-    // ✅ STEP 3: Get Tenant ID (Upwork User ID)
-    console.log('🔍 Getting Tenant ID...')
-    let tenantId = await getUpworkUserInfo(tokenData.access_token)
+    // ✅ STEP 3: Extract Tenant ID from token (JWT decode)
+    console.log('🔍 Extracting Tenant ID from access token...')
+    let tenantId = extractUserIdFromToken(tokenData.access_token)
     
-    if (!tenantId) {
-      console.log('⚠️ Could not get Tenant ID from API, using fallback...')
-      
-      // ✅ FALLBACK: If no tenant ID, use first 20 chars of access token as temp ID
-      tenantId = `temp_${tokenData.access_token.substring(0, 20)}`
-      console.log('✅ Using temporary tenant ID:', tenantId)
+    if (tenantId) {
+      console.log('✅ Found Tenant ID in JWT:', tenantId)
     } else {
-      console.log('✅ Got real Tenant ID:', tenantId)
+      console.log('⚠️ Could not extract Tenant ID from JWT')
+      // Generate a stable ID from token
+      const stableId = `upwork_${tokenData.access_token.substring(20, 40).replace(/[^a-zA-Z0-9]/g, '')}`
+      console.log('✅ Using stable ID:', stableId)
+      tenantId = stableId
     }
 
     // ✅ STEP 4: Get user from database
@@ -254,7 +137,7 @@ export async function GET(request: NextRequest) {
     const userId = users.rows[0].id
     console.log('👤 Found user ID:', userId)
 
-    // ✅ STEP 5: Save to database (INCLUDING TENANT ID)
+    // ✅ STEP 5: Save to database
     const insertQuery = `
       INSERT INTO upwork_accounts (user_id, access_token, refresh_token, upwork_user_id, created_at)
       VALUES ($1, $2, $3, $4, NOW())
@@ -280,16 +163,6 @@ export async function GET(request: NextRequest) {
       console.error('❌ Database error:', dbError.message)
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=' + 
         encodeURIComponent(`Database error: ${dbError.message}`))
-    }
-
-    // ✅ STEP 6: Test GraphQL connection
-    console.log('🚀 Testing GraphQL API access...')
-    const graphqlTest = await testGraphQLConnection(tokenData.access_token, tenantId)
-    
-    if (graphqlTest) {
-      console.log('🎉 GraphQL API ACCESS SUCCESSFUL! Real jobs mil jayenge.')
-    } else {
-      console.log('⚠️ GraphQL test failed. Permissions check karo.')
     }
 
     console.log('=== UPWORK CALLBACK COMPLETE ===')
