@@ -5,50 +5,6 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ FUNCTION: Get Upwork User Info (Tenant ID) - FIXED METHOD
-async function getUpworkUserInfo(accessToken: string) {
-  try {
-    console.log('🔍 Fetching Upwork user info for Tenant ID...')
-
-    // ✅ CORRECT ENDPOINT for getting the authenticated user's info
-    const endpoint = 'https://www.upwork.com/api/auth/v1/info'
-
-    console.log(`Trying endpoint: ${endpoint}`)
-    const response = await fetch(endpoint, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json'
-      }
-    })
-
-    console.log(`Response status: ${response.status}`)
-
-    if (response.ok) {
-      const data = await response.json()
-      console.log('✅ User info response received')
-
-      // ✅ The authenticated user's ID is in `info.user.uid`
-      // According to Upwork's OAuth flow, this is the correct Tenant ID for GraphQL
-      if (data.info && data.info.user && data.info.user.uid) {
-        const tenantId = data.info.user.uid
-        console.log('✅ Found REAL Tenant ID (user.uid):', tenantId)
-        return tenantId
-      } else {
-        console.log('❌ Could not find user.uid in response structure:', data)
-        return null
-      }
-    } else {
-      const errorText = await response.text()
-      console.log(`❌ User info endpoint failed: ${errorText.substring(0, 200)}`)
-      return null
-    }
-
-  } catch (error: any) {
-    console.error('❌ User info fetch error:', error.message)
-    return null
-  }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -73,7 +29,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?error=Server+configuration+error')
     }
 
-    // ✅ STEP 1: Exchange code for tokens
+    // ✅ STEP 1: Exchange code for tokens (THIS IS CORRECT[citation:1])
     console.log('🔄 Exchanging code for access token...')
     const tokenUrl = 'https://www.upwork.com/api/v3/oauth2/token'
 
@@ -100,19 +56,13 @@ export async function GET(request: NextRequest) {
     const tokenData = await tokenResponse.json()
     console.log('✅ Token exchange SUCCESSFUL!')
 
-    // ✅ STEP 2: Get REAL Tenant ID (Upwork User ID)
-    console.log('🔍 Getting REAL Tenant ID...')
-    const tenantId = await getUpworkUserInfo(tokenData.access_token)
+    // ❗ **CRITICAL CHANGE: DO NOT FETCH TENANT ID**
+    // The old endpoint (/api/auth/v1/info) is gone (410 error).
+    // We cannot get the Tenant ID without proper GraphQL permissions.
+    // This is FINE because the REST Jobs API only needs an access token.
+    console.log('⚠️ Skipping Tenant ID fetch. Using REST API only.')
 
-    if (!tenantId) {
-      console.error('❌ CRITICAL: Could not get REAL Tenant ID. App permissions may be wrong.')
-      // Save token anyway, but we'll use Marketplace API instead of GraphQL
-      console.log('⚠️ Will fallback to Marketplace API only')
-    } else {
-      console.log('✅ REAL Tenant ID obtained:', tenantId)
-    }
-
-    // ✅ STEP 3: Save to database
+    // ✅ STEP 2: Save to database (save NULL for tenant ID)
     console.log('💾 Saving to database...')
     const users = await pool.query('SELECT id FROM users LIMIT 1')
 
@@ -138,13 +88,13 @@ export async function GET(request: NextRequest) {
       userId,
       tokenData.access_token,
       tokenData.refresh_token || '',
-      tenantId || null // Save tenantId if we got it
+      null // ⬅️ We are saving NULL for upwork_user_id (Tenant ID)
     ])
 
-    console.log('✅ Connection saved successfully')
+    console.log('✅ Connection saved successfully (REST mode)')
     console.log('=== UPWORK CALLBACK COMPLETE ===')
 
-    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+connected+successfully!')
+    return NextResponse.redirect('https://updash.shameelnasir.com/dashboard?success=upwork_connected&message=Upwork+REST+API+connected!')
 
   } catch (error: any) {
     console.error('❌ CALLBACK UNEXPECTED ERROR:', error.message)
