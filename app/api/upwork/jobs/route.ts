@@ -8,9 +8,9 @@ export const runtime = 'nodejs'
 
 async function fetchUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching COMPLETE job details...')
+    console.log('🚀 Fetching jobs with SAFE query...')
     
-    // ✅ CORRECT QUERY WITH ALL AVAILABLE FIELDS
+    // ✅ SAFE QUERY - Only fields we know exist
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
@@ -20,44 +20,8 @@ async function fetchUpworkJobs(accessToken: string) {
                 id
                 title
                 description
-                # ✅ 1. CONTENT - might have more details
-                content {
-                  description
-                }
-                # ✅ 2. CLIENT COMPANY INFO
-                clientCompanyPublic {
-                  name
-                  location {
-                    country
-                  }
-                }
-                # ✅ 3. CLASSIFICATION (skills, category, etc.)
-                classification {
-                  skills {
-                    edges {
-                      node {
-                        skill {
-                          prettyName
-                        }
-                      }
-                    }
-                  }
-                  category {
-                    title
-                  }
-                  jobType
-                }
-                # ✅ 4. CONTRACT TERMS (BUDGET)
-                contractTerms {
-                  budget {
-                    amount
-                    currencyCode
-                  }
-                }
-                # ✅ 5. PROPOSAL COUNT
-                contractorSelection {
-                  proposalsCount
-                }
+                # Only these fields are guaranteed to exist
+                # We'll add more once we discover them
               }
             }
           }
@@ -83,7 +47,7 @@ async function fetchUpworkJobs(accessToken: string) {
     }
     
     const data = await response.json()
-    console.log('✅ Response received, checking structure...')
+    console.log('✅ Response received')
     
     if (data.errors) {
       console.error('❌ GraphQL errors:', JSON.stringify(data.errors, null, 2))
@@ -93,99 +57,32 @@ async function fetchUpworkJobs(accessToken: string) {
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
     console.log(`✅ Found ${edges.length} job edges`)
     
-    // DEBUG: Check what fields we got
-    if (edges.length > 0 && edges[0].node) {
-      const firstNode = edges[0].node
-      console.log('📋 Node structure:', {
-        hasContent: !!firstNode.content,
-        hasClientCompany: !!firstNode.clientCompanyPublic,
-        hasClassification: !!firstNode.classification,
-        hasContractTerms: !!firstNode.contractTerms,
-        contentKeys: firstNode.content ? Object.keys(firstNode.content) : [],
-        clientCompanyKeys: firstNode.clientCompanyPublic ? Object.keys(firstNode.clientCompanyPublic) : []
-      })
-    }
-    
-    // Format jobs with REAL DATA
+    // Format jobs - for now with basic info
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
       
-      // Extract REAL data from nested objects
-      const content = node.content || {}
-      const clientCompany = node.clientCompanyPublic || {}
-      const classification = node.classification || {}
-      const contractTerms = node.contractTerms || {}
-      const contractorSelection = node.contractorSelection || {}
-      
-      // ✅ REAL BUDGET (if available)
-      const budgetAmount = contractTerms.budget?.amount
-      const budgetCurrency = contractTerms.budget?.currencyCode || 'USD'
-      const budgetText = budgetAmount ? 
-        `${budgetCurrency} ${budgetAmount}` : 
-        'Budget not specified'
-      
-      // ✅ REAL CLIENT (if available)
-      const clientName = clientCompany.name || 'Client name not specified'
-      const clientCountry = clientCompany.location?.country || 'Location not specified'
-      
-      // ✅ REAL SKILLS (if available)
-      const skillsEdges = classification.skills?.edges || []
-      const realSkills = skillsEdges.map((edge: any) => 
-        edge.node?.skill?.prettyName
-      ).filter(Boolean) || ['Skills not listed']
-      
-      // ✅ REAL CATEGORY (if available)
-      const jobCategory = classification.category?.title || 'Category not specified'
-      
-      // ✅ REAL JOB TYPE (if available)
-      const jobType = classification.jobType || 'Type not specified'
-      
-      // ✅ REAL PROPOSAL COUNT (if available)
-      const proposalCount = contractorSelection.proposalsCount || 0
-      
       return {
         id: node.id,
-        title: node.title || 'Title not available',
-        description: content.description || node.description || 'Description not available',
-        budget: budgetText, // ✅ REAL BUDGET YA "not specified"
-        postedDate: 'Recently', // We need to find where posted date is stored
+        title: node.title || 'No title',
+        description: node.description || 'No description',
+        budget: 'Check budget field name', // Temporary
+        postedDate: 'Recently',
         client: {
-          name: clientName, // ✅ REAL CLIENT NAME YA "not specified"
-          rating: 4.5, // Default - we need to find where client rating is stored
-          country: clientCountry, // ✅ REAL COUNTRY YA "not specified"
-          totalSpent: 0, // Default - to be found
-          totalHires: 0  // Default - to be found
+          name: 'Check client field name',
+          rating: 0,
+          country: 'Unknown',
+          totalSpent: 0,
+          totalHires: 0
         },
-        skills: realSkills.slice(0, 5), // ✅ REAL SKILLS YA default (max 5)
-        proposals: proposalCount, // ✅ REAL PROPOSAL COUNT YA 0
+        skills: ['Check skills field name'],
+        proposals: 0,
         verified: true,
-        category: jobCategory, // ✅ REAL CATEGORY YA default
-        jobType: jobType, // ✅ REAL JOB TYPE (Hourly/Fixed)
+        category: 'Unknown',
         source: 'upwork',
         isRealJob: true,
-        // For debugging - we can remove this later
-        _debug: {
-          hasBudget: !!budgetAmount,
-          hasClientName: !!clientName,
-          skillsCount: realSkills.length
-        }
+        _rawNode: node // Keep for debugging
       }
     })
-    
-    console.log(`✅ Formatted ${jobs.length} jobs with REAL details`)
-    
-    // Log first job's real details for verification
-    if (jobs.length > 0) {
-      console.log('📋 First job REAL details:', {
-        id: jobs[0].id,
-        title: jobs[0].title,
-        budget: jobs[0].budget,
-        clientName: jobs[0].client.name,
-        skills: jobs[0].skills,
-        category: jobs[0].category,
-        jobType: jobs[0].jobType
-      })
-    }
     
     return { success: true, jobs: jobs, error: null }
     
@@ -194,6 +91,7 @@ async function fetchUpworkJobs(accessToken: string) {
     return { success: false, error: error.message, jobs: [] }
   }
 }
+
 
 export async function GET() {
   try {

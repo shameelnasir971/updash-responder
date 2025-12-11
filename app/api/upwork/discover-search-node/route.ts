@@ -10,10 +10,10 @@ export async function GET() {
     
     const accessToken = result.rows[0].access_token
     
-    // Discover what fields are in the node
+    // Discover what fields are available on SEARCH RESULT node
     const discoveryQuery = {
       query: `{
-        __type(name: "MarketplaceJobPosting") {
+        __type(name: "MarketplaceJobPostingSearchResult") {
           name
           fields {
             name
