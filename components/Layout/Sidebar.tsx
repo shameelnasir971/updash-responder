@@ -2,7 +2,7 @@
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react' // ✅ useEffect add karo
 
 export default function Sidebar({
   sidebarOpen,
@@ -33,34 +33,14 @@ export default function Sidebar({
     }
   }
 
-  // ✅ REFRESH JOBS FUNCTION
-  const handleRefreshJobs = async () => {
-    try {
-      // Clear cache
-      await fetch('/api/upwork/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
-      
-      // Reload page
-      if (pathname === '/dashboard') {
-        window.location.reload()
-      } else {
-        router.push('/dashboard')
-      }
-    } catch (error) {
-      console.error('Refresh error:', error)
-    }
-  }
-
-  // ✅ NAVIGATION
+  // ✅ SIMPLE NAVIGATION
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'History', href: '/dashboard/history', icon: '📝' },
     { name: 'Prompts', href: '/dashboard/prompts', icon: '⚙️' },
   ]
 
-  // ✅ CONNECT UPWORK
+  // ✅ CONNECT UPWORK FUNCTION
   const handleConnectUpwork = async () => {
     setConnecting(true)
     
@@ -80,7 +60,7 @@ export default function Sidebar({
     }
   }
 
-  // ✅ DISCONNECT UPWORK
+  // ✅ DISCONNECT UPWORK FUNCTION
   const handleDisconnectUpwork = async () => {
     if (!confirm('Are you sure you want to disconnect Upwork account?')) {
       return
@@ -98,6 +78,7 @@ export default function Sidebar({
       if (response.ok) {
         setUpworkConnected(false)
         alert('Upwork account disconnected successfully!')
+        // Refresh page
         window.location.reload()
       } else {
         alert('Failed to disconnect: ' + (data.error || 'Unknown error'))
@@ -125,17 +106,17 @@ export default function Sidebar({
         lg:translate-x-0 lg:static lg:inset-0
         flex flex-col
       `}>
-        {/* Header */}
+        {/* Header Section */}
         <div className="flex-shrink-0 px-6 py-4 border-b border-gray-700">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <h1 className="text-xl font-bold text-white">UPDASH RESPONDER</h1>
-              <p className="text-gray-400 text-xs">Real Upwork Jobs</p>
+              <p className="text-gray-400 text-xs">Upwork Assistant</p>
             </div>
           </div>
         </div>
         
-        {/* Navigation */}
+        {/* Navigation Section */}
         <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
           <nav className="flex-1 px-4 space-y-1">
             {navigation.map((item) => (
@@ -157,20 +138,7 @@ export default function Sidebar({
             ))}
           </nav>
 
-          {/* Refresh Button - Only on Dashboard */}
-          {pathname === '/dashboard' && upworkConnected && (
-            <div className="px-4 mt-4">
-              <button
-                onClick={handleRefreshJobs}
-                className="w-full py-2 px-4 rounded-lg font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors flex items-center justify-center"
-              >
-                <span className="mr-2">🔄</span>
-                Refresh Jobs
-              </button>
-            </div>
-          )}
-
-          {/* Upwork Connection Card */}
+          {/* Upwork Connection Card - IMPROVED */}
           <div className="px-4 mt-6">
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
               <h3 className="text-lg font-semibold text-white mb-3">
@@ -180,15 +148,15 @@ export default function Sidebar({
               
               <div className="mb-4">
                 <div className="flex items-center mb-2">
-                  <div className={`w-3 h-3 rounded-full mr-2 ${upworkConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                  <div className={`w-3 h-3 rounded-full mr-2 ${upworkConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
                   <span className={`font-semibold ${upworkConnected ? 'text-green-400' : 'text-red-400'}`}>
-                    {upworkConnected ? '✅ Live Connected' : '❌ Not Connected'}
+                    {upworkConnected ? '✅ Connected' : '❌ Not Connected'}
                   </span>
                 </div>
                 <p className="text-gray-300 text-sm">
                   {upworkConnected 
-                    ? 'Real jobs from Upwork • Send proposals' 
-                    : 'Connect to access real jobs'}
+                    ? 'You can send proposals directly to Upwork' 
+                    : 'Connect to access real jobs & send proposals'}
                 </p>
               </div>
               
@@ -235,7 +203,7 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Sign Out */}
+        {/* Sign Out Button */}
         <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800 p-4">
           <button
             onClick={handleSignOut}

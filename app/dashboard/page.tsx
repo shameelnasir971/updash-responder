@@ -2,7 +2,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
 
 interface User {
   id: number
@@ -33,17 +32,7 @@ interface Job {
   isRealJob?: boolean
 }
 
-interface PaginationInfo {
-  page: number
-  limit: number
-  total: number
-  pages: number
-}
-
 export default function Dashboard() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [jobs, setJobs] = useState<Job[]>([])
@@ -51,15 +40,7 @@ export default function Dashboard() {
   const [connectionError, setConnectionError] = useState('')
   const [upworkConnected, setUpworkConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
-  
-  // ✅ PAGINATION STATES
-  const [pagination, setPagination] = useState<PaginationInfo>({
-    page: 1,
-    limit: 50,
-    total: 0,
-    pages: 1
-  })
-  
+
   // ✅ POPUP STATES
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showJobPopup, setShowJobPopup] = useState(false)
@@ -72,11 +53,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     checkAuth()
-    // Get page from URL or default to 1
-    const page = parseInt(searchParams.get('page') || '1')
-    setPagination(prev => ({ ...prev, page }))
-    loadJobs(page)
-  }, [searchParams])
+    loadJobs()
+  }, [])
 
   const checkAuth = async () => {
     try {
@@ -95,15 +73,13 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async (page: number = 1) => {
+  const loadJobs = async () => {
     setJobsLoading(true)
     setConnectionError('')
     
     try {
-      console.log(`🔄 Loading REAL jobs for page ${page}...`)
-      
-      const url = `/api/upwork/jobs?page=${page}&limit=${pagination.limit}&refresh=${page === 1 ? 'true' : 'false'}`
-      const response = await fetch(url)
+      console.log('🔄 Loading REAL jobs...')
+      const response = await fetch('/api/upwork/jobs')
       
       if (response.status === 401) {
         setConnectionError('Session expired. Please login again.')
@@ -115,8 +91,6 @@ export default function Dashboard() {
       console.log('📊 Jobs Data:', {
         success: data.success,
         count: data.jobs?.length,
-        page: data.page,
-        pages: data.pages,
         message: data.message
       })
 
@@ -125,23 +99,11 @@ export default function Dashboard() {
         setJobs(data.jobs || [])
         setUpworkConnected(data.upworkConnected || false)
         
-        // Update pagination info
-        if (data.total !== undefined && data.pages !== undefined) {
-          setPagination({
-            page: data.page || page,
-            limit: data.limit || pagination.limit,
-            total: data.total || 0,
-            pages: data.pages || 1
-          })
-        }
-        
         if (data.jobs?.length === 0) {
-          setConnectionError(data.message || 'No jobs found. Try adjusting your filters.')
+          setConnectionError(data.message || 'No jobs found. Try refreshing.')
         } else if (data.jobs?.length > 0) {
           // ✅ SUCCESS MESSAGE
-          const startJob = (page - 1) * pagination.limit + 1
-          const endJob = startJob + data.jobs.length - 1
-          setConnectionError(`✅ Success! Showing ${data.jobs.length} real jobs (${startJob}-${endJob} of ${data.total || 'many'})`)
+          setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
         }
       } else {
         setConnectionError(data.message || 'Failed to load jobs')
@@ -174,24 +136,6 @@ export default function Dashboard() {
       alert('Error: ' + error.message)
       setConnecting(false)
     }
-  }
-
-  // ✅ PAGINATION FUNCTIONS
-  const goToPage = (page: number) => {
-    if (page < 1 || page > pagination.pages) return
-    setPagination(prev => ({ ...prev, page }))
-    router.push(`/dashboard?page=${page}`)
-    loadJobs(page)
-  }
-
-  const handlePageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const page = parseInt(e.target.value)
-    goToPage(page)
-  }
-
-  // ✅ REFRESH JOBS
-  const handleRefreshJobs = () => {
-    loadJobs(pagination.page)
   }
 
   // ✅ JOB CLICK HANDLER
@@ -348,7 +292,7 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Jobs Dashboard</h1>
               <p className="text-sm text-gray-600">
-                {upworkConnected ? ' Real Upwork Jobs' : 'Connect Upwork to see real jobs'}
+                {upworkConnected ? ' Upwork jobs' : 'Connect Upwork to see jobs'}
               </p>
             </div>
             
@@ -379,136 +323,29 @@ export default function Dashboard() {
               : 'bg-yellow-100 text-yellow-700 border border-yellow-400'
           }`}>
             <span>{connectionError}</span>
-            <div className="flex space-x-2">
-              <button 
-                onClick={handleRefreshJobs}
-                className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-              >
-                Refresh
-              </button>
-              <button 
-                onClick={() => loadJobs(1)}
-                className="text-sm bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700"
-              >
-                Clear Filters
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Pagination Controls - TOP */}
-        {pagination.pages > 1 && (
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-            <div className="flex flex-col sm:flex-row justify-between items-center space-y-3 sm:space-y-0">
-              <div className="text-sm text-gray-600">
-                Showing <span className="font-semibold">{(pagination.page - 1) * pagination.limit + 1}</span> to{' '}
-                <span className="font-semibold">
-                  {Math.min(pagination.page * pagination.limit, pagination.total)}
-                </span> of{' '}
-                <span className="font-semibold">{pagination.total}</span> real jobs
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                {/* Page Selector */}
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">Page:</span>
-                  <select 
-                    value={pagination.page}
-                    onChange={handlePageChange}
-                    className="border border-gray-300 rounded px-3 py-1 text-sm"
-                  >
-                    {Array.from({ length: pagination.pages }, (_, i) => i + 1).map(pageNum => (
-                      <option key={pageNum} value={pageNum}>
-                        {pageNum}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-sm text-gray-600">of {pagination.pages}</span>
-                </div>
-                
-                {/* Page Navigation */}
-                <div className="flex space-x-1">
-                  <button
-                    onClick={() => goToPage(pagination.page - 1)}
-                    disabled={pagination.page <= 1}
-                    className="px-3 py-1 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    ← Prev
-                  </button>
-                  
-                  {/* Page Numbers */}
-                  {(() => {
-                    const pages = []
-                    const maxVisible = 5
-                    let start = Math.max(1, pagination.page - Math.floor(maxVisible / 2))
-                    let end = Math.min(pagination.pages, start + maxVisible - 1)
-                    
-                    // Adjust start if we're near the end
-                    if (end - start + 1 < maxVisible) {
-                      start = Math.max(1, end - maxVisible + 1)
-                    }
-                    
-                    for (let i = start; i <= end; i++) {
-                      pages.push(
-                        <button
-                          key={i}
-                          onClick={() => goToPage(i)}
-                          className={`px-3 py-1 border rounded ${
-                            pagination.page === i
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'border-gray-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          {i}
-                        </button>
-                      )
-                    }
-                    
-                    return pages
-                  })()}
-                  
-                  <button
-                    onClick={() => goToPage(pagination.page + 1)}
-                    disabled={pagination.page >= pagination.pages}
-                    className="px-3 py-1 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    Next →
-                  </button>
-                </div>
-              </div>
-            </div>
+            <button 
+              onClick={loadJobs}
+              className="ml-4 text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+            >
+              Refresh
+            </button>
           </div>
         )}
 
         {/* Jobs List */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-6 border-b border-gray-200">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-3 sm:space-y-0">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  {upworkConnected ? 'Real Upwork Jobs' : 'Connect Upwork'}
-                </h2>
-                <p className="text-sm text-gray-600">
-                  {jobs.length > 0 && `Page ${pagination.page} of ${pagination.pages}`}
-                </p>
-              </div>
-              
-              <div className="flex space-x-3">
-                <button 
-                  onClick={handleRefreshJobs}
-                  disabled={jobsLoading}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
-                >
-                  {jobsLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Loading...
-                    </>
-                  ) : (
-                    '🔄 Refresh Jobs'
-                  )}
-                </button>
-              </div>
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900">
+                {upworkConnected ? 'Upwork Jobs' : 'Connect Upwork'}
+              </h2>
+              <button 
+                onClick={loadJobs}
+                disabled={jobsLoading}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {jobsLoading ? 'Loading...' : 'Refresh Jobs'}
+              </button>
             </div>
           </div>
 
@@ -516,8 +353,7 @@ export default function Dashboard() {
             {jobsLoading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading real jobs from Upwork...</p>
-                <p className="text-sm text-gray-500 mt-2">This may take a few seconds</p>
+                <p className="text-gray-600">Loading jobs...</p>
               </div>
             ) : jobs.length === 0 ? (
               <div className="text-center py-12">
@@ -525,32 +361,23 @@ export default function Dashboard() {
                 <h3 className="text-lg font-semibold text-gray-700 mb-2">
                   {upworkConnected ? 'No Jobs Found' : 'Upwork Not Connected'}
                 </h3>
-                <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                <p className="text-gray-500 mb-6">
                   {upworkConnected 
-                    ? 'No jobs match your current filters. Try adjusting keywords or budget in Prompts page, or check back later for new jobs.' 
-                    : 'Connect your Upwork account to see real jobs.'}
+                    ? 'Try refreshing or check Upwork directly.' 
+                    : 'Connect your Upwork account to see jobs.'}
                 </p>
-                {upworkConnected ? (
-                  <button 
-                    onClick={() => router.push('/dashboard/prompts')}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Adjust Filters
-                  </button>
-                ) : (
-                  <button 
-                    onClick={handleConnectUpwork}
-                    className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    Connect Upwork Account
-                  </button>
-                )}
+                <button 
+                  onClick={() => window.open('https://www.upwork.com/nx/find-work/', '_blank')}
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+                >
+                  Browse Upwork
+                </button>
               </div>
             ) : (
               jobs.map((job) => (
                 <div 
                   key={job.id} 
-                  className="p-6 hover:bg-gray-50 cursor-pointer transition-colors border-l-4 border-blue-500"
+                  className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
                   onClick={() => handleJobClick(job)}
                 >
                   <div className="flex justify-between items-start mb-3">
@@ -561,10 +388,8 @@ export default function Dashboard() {
                   </div>
                   
                   <p className="text-gray-600 text-sm mb-3">
-                    <span className="font-medium">Client:</span> {job.client.name} • 
-                    <span className="ml-2">📅 {job.postedDate}</span> • 
-                    <span className="ml-2">📍 {job.client.country}</span> •
-                    <span className="ml-2">⭐ {job.client.rating}/5</span>
+                    Client: {job.client.name} • {job.postedDate} • {job.client.country} •
+                    Rating: {job.client.rating} ⭐
                   </p>
                   
                   <p className="text-gray-700 mb-3">{job.description.substring(0, 250)}...</p>
@@ -576,11 +401,8 @@ export default function Dashboard() {
                           {skill}
                         </span>
                       ))}
-                      {job.skills.length > 3 && (
-                        <span className="text-gray-500 text-sm">+{job.skills.length - 3} more</span>
-                      )}
-                      <span className="text-gray-500 text-sm ml-2">
-                        📝 {job.proposals} proposals
+                      <span className="text-gray-500 text-sm">
+                        {job.proposals} proposals • {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
                       </span>
                     </div>
                     
@@ -599,108 +421,6 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-
-        {/* Pagination Controls - BOTTOM */}
-        {pagination.pages > 1 && jobs.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
-            <div className="flex flex-col items-center">
-              <div className="flex space-x-2 mb-4">
-                {pagination.page > 1 && (
-                  <button
-                    onClick={() => goToPage(1)}
-                    className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
-                  >
-                    « First
-                  </button>
-                )}
-                
-                <button
-                  onClick={() => goToPage(pagination.page - 1)}
-                  disabled={pagination.page <= 1}
-                  className="px-4 py-2 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  ← Previous
-                </button>
-                
-                {/* Page numbers */}
-                {(() => {
-                  const pages = []
-                  const totalPages = pagination.pages
-                  const currentPage = pagination.page
-                  
-                  // Always show first page
-                  if (currentPage > 3) {
-                    pages.push(
-                      <button
-                        key={1}
-                        onClick={() => goToPage(1)}
-                        className={`px-3 py-1 rounded ${1 === currentPage ? 'bg-blue-600 text-white' : 'border border-gray-300 hover:bg-gray-50'}`}
-                      >
-                        1
-                      </button>
-                    )
-                    if (currentPage > 4) {
-                      pages.push(<span key="ellipsis1" className="px-2">...</span>)
-                    }
-                  }
-                  
-                  // Show pages around current
-                  for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
-                    pages.push(
-                      <button
-                        key={i}
-                        onClick={() => goToPage(i)}
-                        className={`px-3 py-1 rounded ${i === currentPage ? 'bg-blue-600 text-white' : 'border border-gray-300 hover:bg-gray-50'}`}
-                      >
-                        {i}
-                      </button>
-                    )
-                  }
-                  
-                  // Always show last page
-                  if (currentPage < totalPages - 2) {
-                    if (currentPage < totalPages - 3) {
-                      pages.push(<span key="ellipsis2" className="px-2">...</span>)
-                    }
-                    pages.push(
-                      <button
-                        key={totalPages}
-                        onClick={() => goToPage(totalPages)}
-                        className={`px-3 py-1 rounded ${totalPages === currentPage ? 'bg-blue-600 text-white' : 'border border-gray-300 hover:bg-gray-50'}`}
-                      >
-                        {totalPages}
-                      </button>
-                    )
-                  }
-                  
-                  return pages
-                })()}
-                
-                <button
-                  onClick={() => goToPage(pagination.page + 1)}
-                  disabled={pagination.page >= pagination.pages}
-                  className="px-4 py-2 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Next →
-                </button>
-                
-                {pagination.page < pagination.pages && (
-                  <button
-                    onClick={() => goToPage(pagination.pages)}
-                    className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
-                  >
-                    Last »
-                  </button>
-                )}
-              </div>
-              
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">Real Jobs:</span> Page {pagination.page} of {pagination.pages} • 
-                Total {pagination.total} jobs • {pagination.limit} per page
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ✅ JOB DETAIL POPUP */}
@@ -715,11 +435,11 @@ export default function Dashboard() {
                   <div className="flex items-center space-x-4 text-sm text-gray-600">
                     <span className="font-semibold text-green-700">{selectedJob.budget}</span>
                     <span>•</span>
-                    <span>📅 Posted: {selectedJob.postedDate}</span>
+                    <span>Posted: {selectedJob.postedDate}</span>
                     <span>•</span>
-                    <span>👤 Client: {selectedJob.client.name}</span>
+                    <span>Client: {selectedJob.client.name}</span>
                     <span>•</span>
-                    <span>⭐ Rating: {selectedJob.client.rating}/5</span>
+                    <span>Rating: {selectedJob.client.rating} ⭐</span>
                   </div>
                 </div>
                 <button 
@@ -741,12 +461,12 @@ export default function Dashboard() {
                 </div>
                 
                 {/* Client Info */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-2 gap-4 mt-4">
                   <div className="bg-blue-50 p-3 rounded-lg">
                     <h4 className="text-sm font-medium text-blue-900 mb-1">Client Info</h4>
                     <p className="text-blue-700">Name: {selectedJob.client.name}</p>
                     <p className="text-blue-700">Country: {selectedJob.client.country}</p>
-                    <p className="text-blue-700">Total Spent: ${selectedJob.client.totalSpent.toLocaleString()}</p>
+                    <p className="text-blue-700">Total Spent: ${selectedJob.client.totalSpent}</p>
                     <p className="text-blue-700">Total Hires: {selectedJob.client.totalHires}</p>
                   </div>
                   
@@ -754,7 +474,7 @@ export default function Dashboard() {
                     <h4 className="text-sm font-medium text-green-900 mb-1">Job Info</h4>
                     <p className="text-green-700">Skills: {selectedJob.skills.join(', ')}</p>
                     <p className="text-green-700">Proposals: {selectedJob.proposals}</p>
-                    <p className="text-green-700">Verified: {selectedJob.verified ? '✅ Yes' : '⚠️ No'}</p>
+                    <p className="text-green-700">Verified: {selectedJob.verified ? 'Yes' : 'No'}</p>
                   </div>
                 </div>
               </div>
