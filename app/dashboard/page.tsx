@@ -72,7 +72,7 @@ const loadJobs = async () => {
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs with UPDATED query...')
+    console.log('🔄 Loading REAL jobs (no mock data)...')
     const response = await fetch('/api/upwork/jobs')
     
     if (response.status === 401) {
@@ -82,11 +82,11 @@ const loadJobs = async () => {
     }
     
     const data = await response.json()
-    console.log('📊 Jobs Response:', {
+    console.log('📊 REAL Jobs Response:', {
       success: data.success,
       count: data.jobs?.length,
       message: data.message,
-      firstJobBudget: data.jobs?.[0]?.budget
+      mockDataUsed: data.debug?.mockDataUsed
     })
 
     if (data.success) {
@@ -94,16 +94,20 @@ const loadJobs = async () => {
       setUpworkConnected(data.upworkConnected || false)
       
       if (data.jobs?.length === 0) {
-        setConnectionError('No active jobs found. Try again in a few minutes.')
+        setConnectionError('No matching jobs found. Update your prompts settings to see relevant jobs.')
       } else if (data.jobs?.length > 0) {
-        setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+        // Check if any job has mock data
+        const hasMockData = data.jobs.some((job: any) => 
+          job.source === 'upwork_simple' || 
+          !job.isRealJob || 
+          (job.client?.name || '').startsWith('Client ')
+        )
         
-        // Debug: Check first job
-        console.log('🔍 First job sample:', {
-          title: data.jobs[0]?.title,
-          budget: data.jobs[0]?.budget,
-          client: data.jobs[0]?.client?.name
-        })
+        if (hasMockData) {
+          setConnectionError('⚠️ Some data may not be fully loaded. Connect with support.')
+        } else {
+          setConnectionError(`✅ Found ${data.jobs.length} REAL jobs matching your criteria!`)
+        }
       }
     } else {
       setConnectionError(data.message || 'Failed to load jobs.')
