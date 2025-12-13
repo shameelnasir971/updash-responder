@@ -1,4 +1,5 @@
 // app/api/upwork/jobs/route.ts 
+// app/api/upwork/jobs/route.ts 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
