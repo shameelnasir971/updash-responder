@@ -1,4 +1,4 @@
-// app/api/proposals/history/route.ts - COMPLETE UPDATED CODE
+// app/api/proposals/history/route.ts 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'

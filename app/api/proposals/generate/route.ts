@@ -1,4 +1,4 @@
-// app/api/proposals/generate/route.ts - COMPLETE UPDATED CODE
+// app/api/proposals/generate/route.ts 
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCurrentUser } from '../../../../lib/auth'
