@@ -2,6 +2,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+// import JobPopup from '@/components/JobPopup' 
 
 interface User {
   id: number
@@ -18,7 +19,7 @@ interface Job {
   postedDate: string
   client: {
     name: string
-    rating: number
+    rating: string
     country: string
     totalSpent: number
     totalHires: number
@@ -27,9 +28,10 @@ interface Job {
   proposals: number
   verified: boolean
   category?: string
-  duration?: string
-  source?: string
-  isRealJob?: boolean
+  jobType?: string
+  experienceLevel?: string
+  source: string
+  isRealJob: boolean
 }
 
 export default function Dashboard() {
@@ -40,21 +42,23 @@ export default function Dashboard() {
   const [connectionError, setConnectionError] = useState('')
   const [upworkConnected, setUpworkConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalJobs, setTotalJobs] = useState(0)
+  const [perPage] = useState(50)
+  const [hasNextPage, setHasNextPage] = useState(false)
+  const [hasPrevPage, setHasPrevPage] = useState(false)
 
-  // ✅ POPUP STATES
+  // Popup state
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showJobPopup, setShowJobPopup] = useState(false)
-  const [proposal, setProposal] = useState('')
-  const [generatingProposal, setGeneratingProposal] = useState(false)
-  const [savingProposal, setSavingProposal] = useState(false)
-  const [sendingProposal, setSendingProposal] = useState(false)
-  const [editingProposal, setEditingProposal] = useState(false)
-  const [editProposalText, setEditProposalText] = useState('')
 
   useEffect(() => {
     checkAuth()
     loadJobs()
-  }, [])
+  }, [currentPage])
 
   const checkAuth = async () => {
     try {
@@ -73,13 +77,14 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async () => {
+  const loadJobs = async (page: number = currentPage) => {
     setJobsLoading(true)
     setConnectionError('')
     
     try {
-      console.log('🔄 Loading REAL jobs...')
-      const response = await fetch('/api/upwork/jobs')
+      console.log(`🔄 Loading page ${page} with ${perPage} jobs...`)
+      
+      const response = await fetch(`/api/upwork/jobs?page=${page}&perPage=${perPage}`)
       
       if (response.status === 401) {
         setConnectionError('Session expired. Please login again.')
@@ -91,23 +96,27 @@ export default function Dashboard() {
       console.log('📊 Jobs Data:', {
         success: data.success,
         count: data.jobs?.length,
+        total: data.total,
+        pages: data.totalPages,
         message: data.message
       })
 
       if (data.success) {
-        // ✅ REAL JOBS SET KARO
         setJobs(data.jobs || [])
+        setTotalJobs(data.total || 0)
+        setTotalPages(data.totalPages || 1)
+        setHasNextPage(data.hasNextPage || false)
+        setHasPrevPage(data.hasPrevPage || false)
         setUpworkConnected(data.upworkConnected || false)
         
         if (data.jobs?.length === 0) {
-          setConnectionError(data.message || 'No jobs found. Try refreshing.')
-        } else if (data.jobs?.length > 0) {
-          // ✅ SUCCESS MESSAGE
-          setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+          setConnectionError(data.message || 'No jobs found. Try adjusting your filters.')
         }
       } else {
         setConnectionError(data.message || 'Failed to load jobs')
         setJobs([])
+        setTotalJobs(0)
+        setTotalPages(1)
       }
       
     } catch (error: any) {
@@ -138,137 +147,18 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ JOB CLICK HANDLER
   const handleJobClick = (job: Job) => {
     setSelectedJob(job)
-    setProposal('')
-    setEditProposalText('')
-    setEditingProposal(false)
     setShowJobPopup(true)
   }
 
-  // ✅ GENERATE PROPOSAL FUNCTION
-  const handleGenerateProposal = async () => {
-    if (!selectedJob) return
-    
-    setGeneratingProposal(true)
-    try {
-      const response = await fetch('/api/proposals/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: selectedJob.id,
-          jobTitle: selectedJob.title,
-          jobDescription: selectedJob.description,
-          clientInfo: selectedJob.client,
-          budget: selectedJob.budget,
-          skills: selectedJob.skills
-        })
-      })
-
-      const data = await response.json()
-      
-      if (data.success && data.proposal) {
-        setProposal(data.proposal)
-        setEditProposalText(data.proposal)
-        alert('✅ Proposal generated successfully!')
-      } else {
-        alert('❌ Failed to generate proposal: ' + (data.error || 'Unknown error'))
-      }
-    } catch (error: any) {
-      console.error('Generate error:', error)
-      alert('❌ Error generating proposal: ' + error.message)
-    } finally {
-      setGeneratingProposal(false)
-    }
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) return
+    setCurrentPage(page)
   }
 
-  // ✅ SAVE PROPOSAL FUNCTION
-  const handleSaveProposal = async () => {
-    if (!selectedJob || !proposal) return
-    
-    setSavingProposal(true)
-    try {
-      const response = await fetch('/api/proposals/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: selectedJob.id,
-          jobTitle: selectedJob.title,
-          jobDescription: selectedJob.description,
-          clientInfo: selectedJob.client,
-          budget: selectedJob.budget,
-          skills: selectedJob.skills,
-          proposalText: editingProposal ? editProposalText : proposal,
-          status: 'saved'
-        })
-      })
-
-      const data = await response.json()
-      
-      if (data.success) {
-        alert('✅ Proposal saved to history!')
-        // Close popup
-        setShowJobPopup(false)
-        setSelectedJob(null)
-      } else {
-        alert('❌ Failed to save: ' + (data.error || 'Unknown error'))
-      }
-    } catch (error: any) {
-      console.error('Save error:', error)
-      alert('❌ Error saving proposal: ' + error.message)
-    } finally {
-      setSavingProposal(false)
-    }
-  }
-
-  // ✅ SEND PROPOSAL FUNCTION (UPWORK + HISTORY)
-  const handleSendProposal = async () => {
-    if (!selectedJob || !proposal) return
-    
-    setSendingProposal(true)
-    try {
-      const response = await fetch('/api/proposals/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: selectedJob.id,
-          jobTitle: selectedJob.title,
-          proposalText: editingProposal ? editProposalText : proposal,
-          originalProposal: proposal,
-          editReason: editingProposal ? 'User edited before sending' : 'Original AI proposal'
-        })
-      })
-
-      const data = await response.json()
-      
-      if (data.success) {
-        const successMessage = data.upworkSent 
-          ? '✅ Proposal sent to Upwork and saved to history!' 
-          : '✅ Proposal saved to history (Upwork not connected)'
-        alert(successMessage)
-        
-        // Close popup
-        setShowJobPopup(false)
-        setSelectedJob(null)
-      } else {
-        alert('❌ Failed to send: ' + (data.error || 'Unknown error'))
-      }
-    } catch (error: any) {
-      console.error('Send error:', error)
-      alert('❌ Error sending proposal: ' + error.message)
-    } finally {
-      setSendingProposal(false)
-    }
-  }
-
-  // ✅ EDIT PROPOSAL TOGGLE
-  const toggleEditProposal = () => {
-    if (editingProposal) {
-      // Save edited changes
-      setProposal(editProposalText)
-    }
-    setEditingProposal(!editingProposal)
+  const refreshJobs = () => {
+    loadJobs(currentPage)
   }
 
   if (loading) {
@@ -284,7 +174,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ✅ Main Content WITHOUT extra sidebar */}
       <div className="flex-1 p-6">
         {/* Header */}
         <div className="mb-8">
@@ -292,17 +181,16 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Jobs Dashboard</h1>
               <p className="text-sm text-gray-600">
-                {upworkConnected ? ' Upwork jobs' : 'Connect Upwork to see jobs'}
+                {upworkConnected ? `Real Upwork Jobs • Page ${currentPage} of ${totalPages}` : 'Connect Upwork to see jobs'}
               </p>
             </div>
             
-            {/* Connection Status */}
             <div className="flex items-center space-x-3">
               <div className={`px-3 py-1 rounded-full text-sm font-semibold ${upworkConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                 {upworkConnected ? '✅ Connected' : '❌ Not Connected'}
               </div>
               
-              {!upworkConnected && (
+              {!upworkConnected ? (
                 <button 
                   onClick={handleConnectUpwork}
                   disabled={connecting}
@@ -310,12 +198,42 @@ export default function Dashboard() {
                 >
                   {connecting ? 'Connecting...' : 'Connect Upwork'}
                 </button>
+              ) : (
+                <button 
+                  onClick={refreshJobs}
+                  disabled={jobsLoading}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {jobsLoading ? 'Refreshing...' : '🔄 Refresh'}
+                </button>
               )}
             </div>
           </div>
         </div>
 
-        {/* Error Message */}
+        {/* Stats Bar */}
+        {upworkConnected && totalJobs > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-gray-900">{totalJobs.toLocaleString()}</div>
+              <div className="text-gray-600 text-sm">Total Jobs</div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-gray-900">{currentPage}</div>
+              <div className="text-gray-600 text-sm">Current Page</div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-gray-900">{perPage}</div>
+              <div className="text-gray-600 text-sm">Jobs Per Page</div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-gray-900">{totalPages}</div>
+              <div className="text-gray-600 text-sm">Total Pages</div>
+            </div>
+          </div>
+        )}
+
+        {/* Error/Success Message */}
         {connectionError && (
           <div className={`px-4 py-3 rounded-lg mb-6 flex justify-between items-center ${
             connectionError.includes('✅') 
@@ -324,7 +242,7 @@ export default function Dashboard() {
           }`}>
             <span>{connectionError}</span>
             <button 
-              onClick={loadJobs}
+              onClick={refreshJobs}
               className="ml-4 text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
             >
               Refresh
@@ -333,19 +251,24 @@ export default function Dashboard() {
         )}
 
         {/* Jobs List */}
-        <div className="bg-white rounded-lg shadow">
+        <div className="bg-white rounded-lg shadow border border-gray-200">
           <div className="p-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900">
-                {upworkConnected ? 'Upwork Jobs' : 'Connect Upwork'}
+                {upworkConnected ? `Upwork Jobs (Page ${currentPage})` : 'Connect Upwork'}
               </h2>
-              <button 
-                onClick={loadJobs}
-                disabled={jobsLoading}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {jobsLoading ? 'Loading...' : 'Refresh Jobs'}
-              </button>
+              <div className="flex items-center space-x-3">
+                <span className="text-sm text-gray-600">
+                  Showing {jobs.length} of {totalJobs.toLocaleString()} jobs
+                </span>
+                <button 
+                  onClick={refreshJobs}
+                  disabled={jobsLoading}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {jobsLoading ? 'Loading...' : 'Refresh Jobs'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -363,15 +286,24 @@ export default function Dashboard() {
                 </h3>
                 <p className="text-gray-500 mb-6">
                   {upworkConnected 
-                    ? 'Try refreshing or check Upwork directly.' 
-                    : 'Connect your Upwork account to see jobs.'}
+                    ? 'Try adjusting your filters in Prompts page or refresh.' 
+                    : 'Connect your Upwork account to see real jobs.'}
                 </p>
-                <button 
-                  onClick={() => window.open('https://www.upwork.com/nx/find-work/', '_blank')}
-                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-                >
-                  Browse Upwork
-                </button>
+                {upworkConnected ? (
+                  <button 
+                    onClick={() => window.open('https://www.upwork.com/nx/find-work/', '_blank')}
+                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+                  >
+                    Browse Upwork Directly
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleConnectUpwork}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  >
+                    Connect Upwork
+                  </button>
+                )}
               </div>
             ) : (
               jobs.map((job) => (
@@ -389,7 +321,7 @@ export default function Dashboard() {
                   
                   <p className="text-gray-600 text-sm mb-3">
                     Client: {job.client.name} • {job.postedDate} • {job.client.country} •
-                    Rating: {job.client.rating} ⭐
+                    Rating: {job.client.rating} ⭐ • {job.proposals} proposals
                   </p>
                   
                   <p className="text-gray-700 mb-3">{job.description.substring(0, 250)}...</p>
@@ -397,12 +329,17 @@ export default function Dashboard() {
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-2">
                       {job.skills.slice(0, 3).map((skill, index) => (
-                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
+                        <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                           {skill}
                         </span>
                       ))}
+                      {job.skills.length > 3 && (
+                        <span className="text-gray-500 text-xs">
+                          +{job.skills.length - 3} more
+                        </span>
+                      )}
                       <span className="text-gray-500 text-sm">
-                        {job.proposals} proposals • {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
+                        {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
                       </span>
                     </div>
                     
@@ -413,21 +350,107 @@ export default function Dashboard() {
                         handleJobClick(job)
                       }}
                     >
-                      Generate Proposal
+                      View Details
                     </button>
                   </div>
                 </div>
               ))
             )}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="p-6 border-t border-gray-200">
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-gray-600">
+                  Page {currentPage} of {totalPages} • {totalJobs.toLocaleString()} total jobs
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handlePageChange(1)}
+                    disabled={currentPage === 1}
+                    className="px-3 py-2 rounded-lg border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+                  >
+                    First
+                  </button>
+                  
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={!hasPrevPage}
+                    className="px-3 py-2 rounded-lg border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+                  >
+                    Previous
+                  </button>
+                  
+                  {/* Page Numbers */}
+                  <div className="flex space-x-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum
+                      if (totalPages <= 5) {
+                        pageNum = i + 1
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i
+                      } else {
+                        pageNum = currentPage - 2 + i
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => handlePageChange(pageNum)}
+                          className={`w-10 h-10 rounded-lg ${
+                            currentPage === pageNum
+                              ? 'bg-blue-600 text-white'
+                              : 'border border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      )
+                    })}
+                    
+                    {totalPages > 5 && currentPage < totalPages - 2 && (
+                      <>
+                        <span className="px-2 py-2">...</span>
+                        <button
+                          onClick={() => handlePageChange(totalPages)}
+                          className="w-10 h-10 rounded-lg border border-gray-300 hover:bg-gray-50"
+                        >
+                          {totalPages}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={!hasNextPage}
+                    className="px-3 py-2 rounded-lg border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+                  >
+                    Next
+                  </button>
+                  
+                  <button
+                    onClick={() => handlePageChange(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-2 rounded-lg border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+                  >
+                    Last
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ✅ JOB DETAIL POPUP */}
+      {/* Job Popup Component */}
       {showJobPopup && selectedJob && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Header */}
             <div className="p-6 border-b border-gray-200">
               <div className="flex justify-between items-start">
                 <div>
@@ -451,132 +474,52 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
-              {/* Job Details */}
               <div className="mb-8">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Job Details</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Job Description</h3>
                 <div className="bg-gray-50 p-4 rounded-lg border">
                   <p className="text-gray-700 whitespace-pre-wrap">{selectedJob.description}</p>
                 </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 mb-2">Client Information</h4>
+                  <p className="text-blue-800">Name: {selectedJob.client.name}</p>
+                  <p className="text-blue-800">Country: {selectedJob.client.country}</p>
+                  <p className="text-blue-800">Rating: {selectedJob.client.rating}/5</p>
+                  <p className="text-blue-800">Total Spent: ${selectedJob.client.totalSpent}</p>
+                  <p className="text-blue-800">Total Hires: {selectedJob.client.totalHires}</p>
+                </div>
                 
-                {/* Client Info */}
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div className="bg-blue-50 p-3 rounded-lg">
-                    <h4 className="text-sm font-medium text-blue-900 mb-1">Client Info</h4>
-                    <p className="text-blue-700">Name: {selectedJob.client.name}</p>
-                    <p className="text-blue-700">Country: {selectedJob.client.country}</p>
-                    <p className="text-blue-700">Total Spent: ${selectedJob.client.totalSpent}</p>
-                    <p className="text-blue-700">Total Hires: {selectedJob.client.totalHires}</p>
-                  </div>
-                  
-                  <div className="bg-green-50 p-3 rounded-lg">
-                    <h4 className="text-sm font-medium text-green-900 mb-1">Job Info</h4>
-                    <p className="text-green-700">Skills: {selectedJob.skills.join(', ')}</p>
-                    <p className="text-green-700">Proposals: {selectedJob.proposals}</p>
-                    <p className="text-green-700">Verified: {selectedJob.verified ? 'Yes' : 'No'}</p>
-                  </div>
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-green-900 mb-2">Job Details</h4>
+                  <p className="text-green-800">Proposals: {selectedJob.proposals}</p>
+                  <p className="text-green-800">Category: {selectedJob.category}</p>
+                  <p className="text-green-800">Job Type: {selectedJob.jobType}</p>
+                  <p className="text-green-800">Experience: {selectedJob.experienceLevel}</p>
+                  <p className="text-green-800">Verified: {selectedJob.verified ? 'Yes' : 'No'}</p>
                 </div>
               </div>
-
-              {/* Proposal Section */}
-              <div className="border-t border-gray-200 pt-8">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Proposal</h3>
-                  
-                  {!proposal && (
-                    <button
-                      onClick={handleGenerateProposal}
-                      disabled={generatingProposal}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
-                    >
-                      {generatingProposal ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                          Generating...
-                        </>
-                      ) : (
-                        '🤖 Generate Proposal'
-                      )}
-                    </button>
-                  )}
+              
+              <div className="border-t border-gray-200 pt-6">
+                <div className="flex justify-between">
+                  <button
+                    onClick={() => {
+                      // Handle generate proposal
+                      setShowJobPopup(false)
+                    }}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+                  >
+                    🤖 Generate Proposal
+                  </button>
+                  <button
+                    onClick={() => setShowJobPopup(false)}
+                    className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700"
+                  >
+                    Close
+                  </button>
                 </div>
-
-                {proposal ? (
-                  <div className="space-y-4">
-                    {/* Proposal Display/Edit */}
-                    {editingProposal ? (
-                      <textarea
-                        value={editProposalText}
-                        onChange={(e) => setEditProposalText(e.target.value)}
-                        rows={12}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Edit your proposal..."
-                      />
-                    ) : (
-                      <div className="bg-gray-50 p-4 rounded-lg border">
-                        <p className="text-gray-700 whitespace-pre-wrap">{proposal}</p>
-                      </div>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap gap-3 pt-4">
-                      {/* Edit Toggle Button */}
-                      <button
-                        onClick={toggleEditProposal}
-                        className={`px-4 py-2 rounded-lg font-medium ${
-                          editingProposal 
-                            ? 'bg-green-600 text-white hover:bg-green-700' 
-                            : 'bg-yellow-600 text-white hover:bg-yellow-700'
-                        }`}
-                      >
-                        {editingProposal ? '💾 Save Edit' : '✏️ Edit Proposal'}
-                      </button>
-
-                      {/* Save Button */}
-                      <button
-                        onClick={handleSaveProposal}
-                        disabled={savingProposal}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {savingProposal ? 'Saving...' : '💾 Save to History'}
-                      </button>
-
-                      {/* Send Button */}
-                      <button
-                        onClick={handleSendProposal}
-                        disabled={sendingProposal}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
-                      >
-                        {sendingProposal ? 'Sending...' : '🚀 Send to Upwork'}
-                      </button>
-
-                      {/* Close Button */}
-                      <button
-                        onClick={() => setShowJobPopup(false)}
-                        className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-                      >
-                        Close
-                      </button>
-                    </div>
-                    
-                    {/* AI Training Info */}
-                    <div className="text-sm text-gray-500 mt-4">
-                      💡 AI will learn from your edits to generate better proposals next time!
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12 bg-gray-50 rounded-lg border">
-                    <div className="text-gray-400 mb-4 text-6xl">🤖</div>
-                    <h3 className="text-lg font-semibold text-gray-700 mb-2">No Proposal Generated Yet</h3>
-                    <p className="text-gray-500 mb-6">
-                      Click "Generate Proposal" to create a professional proposal using AI
-                    </p>
-                    <p className="text-sm text-gray-400">
-                      AI will use your prompts from Settings page to personalize the proposal
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
           </div>
