@@ -32,6 +32,15 @@ interface Job {
   isRealJob?: boolean
 }
 
+interface PaginationInfo {
+  current: number
+  perPage: number
+  total: number
+  totalPages: number
+  nextPage: number | null
+  prevPage: number | null
+}
+
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -40,6 +49,20 @@ export default function Dashboard() {
   const [connectionError, setConnectionError] = useState('')
   const [upworkConnected, setUpworkConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
+
+  // ✅ PAGINATION STATES
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalJobs, setTotalJobs] = useState(0)
+  const [perPage] = useState(50)
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    current: 1,
+    perPage: 50,
+    total: 0,
+    totalPages: 1,
+    nextPage: null,
+    prevPage: null
+  })
 
   // ✅ POPUP STATES
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
@@ -53,7 +76,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     checkAuth()
-    loadJobs()
+    loadJobs(currentPage)
   }, [])
 
   const checkAuth = async () => {
@@ -73,13 +96,13 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async () => {
+  const loadJobs = async (page: number = 1) => {
     setJobsLoading(true)
     setConnectionError('')
     
     try {
-      console.log('🔄 Loading REAL jobs...')
-      const response = await fetch('/api/upwork/jobs')
+      console.log(`🔄 Loading jobs page ${page}...`)
+      const response = await fetch(`/api/upwork/jobs?page=${page}&perPage=${perPage}`)
       
       if (response.status === 401) {
         setConnectionError('Session expired. Please login again.')
@@ -91,19 +114,29 @@ export default function Dashboard() {
       console.log('📊 Jobs Data:', {
         success: data.success,
         count: data.jobs?.length,
-        message: data.message
+        currentPage: data.currentPage,
+        totalPages: data.totalPages,
+        totalJobs: data.totalCount
       })
 
       if (data.success) {
-        // ✅ REAL JOBS SET KARO
+        // ✅ JOBS SET KARO
         setJobs(data.jobs || [])
         setUpworkConnected(data.upworkConnected || false)
+        setCurrentPage(data.currentPage || 1)
+        setTotalPages(data.totalPages || 1)
+        setTotalJobs(data.totalCount || 0)
+        
+        // Set pagination info
+        if (data.pagination) {
+          setPagination(data.pagination)
+        }
         
         if (data.jobs?.length === 0) {
-          setConnectionError(data.message || 'No jobs found. Try refreshing.')
+          setConnectionError(data.message || 'No jobs found. Try different filters.')
         } else if (data.jobs?.length > 0) {
           // ✅ SUCCESS MESSAGE
-          setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+          setConnectionError(`✅ Page ${data.currentPage} of ${data.totalPages} • ${data.jobs.length} jobs`)
         }
       } else {
         setConnectionError(data.message || 'Failed to load jobs')
@@ -222,7 +255,7 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ SEND PROPOSAL FUNCTION (UPWORK + HISTORY)
+  // ✅ SEND PROPOSAL FUNCTION
   const handleSendProposal = async () => {
     if (!selectedJob || !proposal) return
     
@@ -271,6 +304,69 @@ export default function Dashboard() {
     setEditingProposal(!editingProposal)
   }
 
+  // ✅ PAGINATION FUNCTIONS
+  const goToPage = (page: number) => {
+    if (page < 1 || page > totalPages) return
+    setCurrentPage(page)
+    loadJobs(page)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const nextPage = () => {
+    if (currentPage < totalPages) {
+      const next = currentPage + 1
+      setCurrentPage(next)
+      loadJobs(next)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  const prevPage = () => {
+    if (currentPage > 1) {
+      const prev = currentPage - 1
+      setCurrentPage(prev)
+      loadJobs(prev)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  // ✅ GENERATE PAGE NUMBERS FOR PAGINATION
+  const generatePageNumbers = () => {
+    const pages = []
+    const maxVisible = 5 // Max visible page numbers
+    
+    if (totalPages <= maxVisible) {
+      // Show all pages
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i)
+      }
+    } else {
+      // Show limited pages with ellipsis
+      if (currentPage <= 3) {
+        // Near the start
+        for (let i = 1; i <= 4; i++) pages.push(i)
+        pages.push('...')
+        pages.push(totalPages)
+      } else if (currentPage >= totalPages - 2) {
+        // Near the end
+        pages.push(1)
+        pages.push('...')
+        for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i)
+      } else {
+        // In the middle
+        pages.push(1)
+        pages.push('...')
+        pages.push(currentPage - 1)
+        pages.push(currentPage)
+        pages.push(currentPage + 1)
+        pages.push('...')
+        pages.push(totalPages)
+      }
+    }
+    
+    return pages
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -284,7 +380,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* ✅ Main Content WITHOUT extra sidebar */}
+      {/* ✅ Main Content */}
       <div className="flex-1 p-6">
         {/* Header */}
         <div className="mb-8">
@@ -292,12 +388,21 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Jobs Dashboard</h1>
               <p className="text-sm text-gray-600">
-                {upworkConnected ? ' Upwork jobs' : 'Connect Upwork to see jobs'}
+                {upworkConnected ? 'Real Upwork jobs' : 'Connect Upwork to see real jobs'}
               </p>
             </div>
             
             {/* Connection Status */}
             <div className="flex items-center space-x-3">
+              <div className="px-4 py-2 bg-white rounded-lg shadow border">
+                <div className="text-sm text-gray-600">
+                  Page <span className="font-bold">{currentPage}</span> of <span className="font-bold">{totalPages}</span>
+                </div>
+                <div className="text-xs text-gray-500">
+                  Total: {totalJobs} jobs • {perPage} per page
+                </div>
+              </div>
+              
               <div className={`px-3 py-1 rounded-full text-sm font-semibold ${upworkConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                 {upworkConnected ? '✅ Connected' : '❌ Not Connected'}
               </div>
@@ -320,11 +425,13 @@ export default function Dashboard() {
           <div className={`px-4 py-3 rounded-lg mb-6 flex justify-between items-center ${
             connectionError.includes('✅') 
               ? 'bg-green-100 text-green-700 border border-green-400' 
+              : connectionError.includes('❌')
+              ? 'bg-red-100 text-red-700 border border-red-400'
               : 'bg-yellow-100 text-yellow-700 border border-yellow-400'
           }`}>
             <span>{connectionError}</span>
             <button 
-              onClick={loadJobs}
+              onClick={() => loadJobs(currentPage)}
               className="ml-4 text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
             >
               Refresh
@@ -337,10 +444,10 @@ export default function Dashboard() {
           <div className="p-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900">
-                {upworkConnected ? 'Upwork Jobs' : 'Connect Upwork'}
+                {upworkConnected ? 'Upwork Jobs' : 'Sample Jobs'}
               </h2>
               <button 
-                onClick={loadJobs}
+                onClick={() => loadJobs(currentPage)}
                 disabled={jobsLoading}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
@@ -363,8 +470,8 @@ export default function Dashboard() {
                 </h3>
                 <p className="text-gray-500 mb-6">
                   {upworkConnected 
-                    ? 'Try refreshing or check Upwork directly.' 
-                    : 'Connect your Upwork account to see jobs.'}
+                    ? 'Try refreshing or adjust your filters in Prompts page.' 
+                    : 'Connect your Upwork account to see real jobs.'}
                 </p>
                 <button 
                   onClick={() => window.open('https://www.upwork.com/nx/find-work/', '_blank')}
@@ -374,53 +481,158 @@ export default function Dashboard() {
                 </button>
               </div>
             ) : (
-              jobs.map((job) => (
-                <div 
-                  key={job.id} 
-                  className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
-                  onClick={() => handleJobClick(job)}
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <h3 className="font-semibold text-gray-900 text-lg">{job.title}</h3>
-                    <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
-                      {job.budget}
-                    </span>
-                  </div>
-                  
-                  <p className="text-gray-600 text-sm mb-3">
-                    Client: {job.client.name} • {job.postedDate} • {job.client.country} •
-                    Rating: {job.client.rating} ⭐
-                  </p>
-                  
-                  <p className="text-gray-700 mb-3">{job.description.substring(0, 250)}...</p>
-                  
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                      {job.skills.slice(0, 3).map((skill, index) => (
-                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
-                          {skill}
-                        </span>
-                      ))}
-                      <span className="text-gray-500 text-sm">
-                        {job.proposals} proposals • {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
+              <>
+                {jobs.map((job) => (
+                  <div 
+                    key={job.id} 
+                    className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={() => handleJobClick(job)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <h3 className="font-semibold text-gray-900 text-lg">{job.title}</h3>
+                      <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
+                        {job.budget}
                       </span>
                     </div>
                     
-                    <button 
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleJobClick(job)
-                      }}
-                    >
-                      Generate Proposal
-                    </button>
+                    <p className="text-gray-600 text-sm mb-3">
+                      Client: {job.client.name} • {job.postedDate} • {job.client.country} •
+                      Rating: {job.client.rating} ⭐
+                    </p>
+                    
+                    <p className="text-gray-700 mb-3">{job.description.substring(0, 250)}...</p>
+                    
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center space-x-2">
+                        {job.skills.slice(0, 3).map((skill, index) => (
+                          <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
+                            {skill}
+                          </span>
+                        ))}
+                        <span className="text-gray-500 text-sm">
+                          {job.proposals} proposals • {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
+                        </span>
+                      </div>
+                      
+                      <button 
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleJobClick(job)
+                        }}
+                      >
+                        Generate Proposal
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </>
             )}
           </div>
         </div>
+
+        {/* ✅ PAGINATION COMPONENT */}
+        {totalPages > 1 && jobs.length > 0 && !jobsLoading && (
+          <div className="mt-8 bg-white rounded-lg shadow p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-center">
+              {/* Page Info */}
+              <div className="mb-4 sm:mb-0">
+                <p className="text-sm text-gray-700">
+                  Showing <span className="font-bold">{Math.min(jobs.length, perPage)}</span> jobs on page <span className="font-bold">{currentPage}</span> of <span className="font-bold">{totalPages}</span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  Total {totalJobs} jobs found
+                </p>
+              </div>
+
+              {/* Page Navigation */}
+              <div className="flex items-center space-x-2">
+                {/* First & Previous Buttons */}
+                <button
+                  onClick={() => goToPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  First
+                </button>
+                
+                <button
+                  onClick={prevPage}
+                  disabled={currentPage === 1}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+
+                {/* Page Numbers */}
+                <div className="flex items-center space-x-1">
+                  {generatePageNumbers().map((pageNum, index) => (
+                    pageNum === '...' ? (
+                      <span key={`ellipsis-${index}`} className="px-3 py-2 text-gray-500">
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={pageNum}
+                        onClick={() => goToPage(Number(pageNum))}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg ${
+                          currentPage === pageNum
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    )
+                  ))}
+                </div>
+
+                {/* Next & Last Buttons */}
+                <button
+                  onClick={nextPage}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+                
+                <button
+                  onClick={() => goToPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+
+            {/* Page Jump */}
+            <div className="mt-4 flex justify-center">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-700">Go to page:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={totalPages}
+                  value={currentPage}
+                  onChange={(e) => setCurrentPage(Number(e.target.value))}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      goToPage(Number((e.target as HTMLInputElement).value))
+                    }
+                  }}
+                  className="w-16 px-2 py-1 border border-gray-300 rounded text-center"
+                />
+                <button
+                  onClick={() => goToPage(currentPage)}
+                  className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                >
+                  Go
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ✅ JOB DETAIL POPUP */}
