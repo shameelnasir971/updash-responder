@@ -6,24 +6,26 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ PAGINATION PARAMETERS
-const JOBS_PER_PAGE = 20
-const TOTAL_JOBS_TO_FETCH = 100 // Fetch 100 jobs total from Upwork
-
 // ✅ HELPER: Extract budget amount from string
 function extractBudgetAmount(budgetString: string): number {
   if (!budgetString) return 0
   
+  // Remove currency symbols and text
   const cleaned = budgetString
-    .replace(/[\$,€,£]/g, '')
-    .replace(/\/hr/gi, '')
-    .replace(/hourly/gi, '')
-    .replace(/fixed/gi, '')
-    .replace(/budget/gi, '')
+    .replace(/[\$,€,£]/g, '') // Remove currency symbols
+    .replace(/\/hr/gi, '') // Remove per hour
+    .replace(/hourly/gi, '') // Remove hourly
+    .replace(/fixed/gi, '') // Remove fixed
+    .replace(/budget/gi, '') // Remove budget word
     .trim()
   
+  // Extract first number
   const match = cleaned.match(/(\d+)/)
-  return match ? parseInt(match[1], 10) : 0
+  if (match) {
+    return parseInt(match[1], 10)
+  }
+  
+  return 0
 }
 
 // ✅ HELPER: Check if job matches keywords
@@ -33,13 +35,15 @@ function matchesKeywords(jobText: string, keywords: string): boolean {
   const jobTextLower = jobText.toLowerCase()
   const keywordList = keywords.toLowerCase().split(' OR ')
   
+  // Check each keyword/phrase
   return keywordList.some(keyword => {
     const cleanKeyword = keyword.trim().replace(/"/g, '')
     if (cleanKeyword.includes(' ')) {
+      // Phrase match
       return jobTextLower.includes(cleanKeyword)
     } else {
-      const words = jobTextLower.split(/\s+/)
-      return words.some(word => word === cleanKeyword)
+      // Word match
+      return jobTextLower.split(/\s+/).some(word => word === cleanKeyword)
     }
   })
 }
@@ -79,11 +83,13 @@ async function filterJobsByUserSettings(jobs: any[], userId: number) {
   try {
     console.log(`🔄 Filtering ${jobs.length} jobs for user:`, userId)
     
+    // Get user's prompt settings
     const settingsResult = await pool.query(
       'SELECT basic_info, validation_rules FROM prompt_settings WHERE user_id = $1',
       [userId]
     )
     
+    // If no settings, return all jobs
     if (settingsResult.rows.length === 0) {
       console.log('ℹ️ No user settings found, returning all jobs')
       return jobs
@@ -93,6 +99,7 @@ async function filterJobsByUserSettings(jobs: any[], userId: number) {
     const basicInfo = settings.basic_info || {}
     const validationRules = settings.validation_rules || {}
     
+    // Extract filtering criteria
     const keywords = basicInfo.keywords || ''
     const minBudget = validationRules.minBudget || 0
     const maxBudget = validationRules.maxBudget || 1000000
@@ -107,22 +114,26 @@ async function filterJobsByUserSettings(jobs: any[], userId: number) {
       requiredSkills: requiredSkills.length
     })
     
+    // Filter jobs
     const filteredJobs = jobs.filter(job => {
       const jobText = (job.title + ' ' + job.description).toLowerCase()
       const jobSkills = job.skills || []
       const jobBudget = job.budget || ''
       const jobRating = job.client?.rating || 0
       
+      // Check all conditions
       const keywordMatch = matchesKeywords(jobText, keywords)
       const skillMatch = matchesSkills(jobSkills, requiredSkills)
       const budgetMatch = matchesBudget(jobBudget, minBudget, maxBudget)
       const ratingMatch = matchesClientRating(jobRating, clientRating)
       
+      // Return true only if ALL conditions match
       return keywordMatch && skillMatch && budgetMatch && ratingMatch
     })
     
     console.log(`✅ Filtered ${jobs.length} jobs to ${filteredJobs.length} matching jobs`)
     
+    // If no jobs match, show message
     if (filteredJobs.length === 0 && jobs.length > 0) {
       console.log('⚠️ No jobs matched user criteria. Adjust your settings in Prompts page.')
     }
@@ -131,23 +142,20 @@ async function filterJobsByUserSettings(jobs: any[], userId: number) {
     
   } catch (error) {
     console.error('❌ Filtering error:', error)
-    return jobs
+    return jobs // Return all jobs if filtering fails
   }
 }
 
-// ✅ FETCH REAL JOBS FROM UPWORK WITH PAGINATION
-async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: number = JOBS_PER_PAGE) {
+// ✅ FETCH REAL JOBS FROM UPWORK
+async function fetchUpworkJobs(accessToken: string) {
   try {
-    console.log(`🚀 Fetching Upwork jobs (Page: ${page}, Limit: ${limit})...`)
+    console.log('🚀 Fetching jobs with PROPER budget formatting...')
     
+    // ✅ Same working query
     const graphqlQuery = {
       query: `
-        query GetMarketplaceJobs($first: Int, $after: String) {
-          marketplaceJobPostingsSearch(
-            first: $first,
-            after: $after,
-            sort: { field: CREATED_AT, direction: DESC }
-          ) {
+        query GetMarketplaceJobs {
+          marketplaceJobPostingsSearch {
             edges {
               node {
                 id
@@ -180,21 +188,10 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
                 duration
                 durationLabel
               }
-              cursor
-            }
-            pageInfo {
-              hasNextPage
-              hasPreviousPage
-              startCursor
-              endCursor
             }
           }
         }
-      `,
-      variables: {
-        first: TOTAL_JOBS_TO_FETCH, // Fetch more jobs for better pagination
-        after: null
-      }
+      `
     }
     
     const response = await fetch('https://api.upwork.com/graphql', {
@@ -216,21 +213,35 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
     
     const data = await response.json()
     
+    // DEBUG: Check actual budget data
+    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node) {
+      const firstNode = data.data.marketplaceJobPostingsSearch.edges[0].node
+      console.log('💰 BUDGET DEBUG - First job:', {
+        id: firstNode.id,
+        title: firstNode.title,
+        amountObject: firstNode.amount,
+        rawValue: firstNode.amount?.rawValue,
+        currency: firstNode.amount?.currency,
+        displayValue: firstNode.amount?.displayValue
+      })
+    }
+    
     if (data.errors) {
       console.error('GraphQL errors:', data.errors)
       return { success: false, error: data.errors[0]?.message, jobs: [] }
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} total jobs from Upwork`)
+    console.log(`✅ Found ${edges.length} job edges`)
     
-    // Format jobs
-    const allJobs = edges.map((edge: any) => {
+    // Format jobs with PROPER BUDGET
+    const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
       
-      // BUDGET FORMATTING
+      // ✅ PROPER BUDGET FORMATTING
       let budgetText = 'Budget not specified'
       
+      // Try fixed price (amount field)
       if (node.amount?.rawValue) {
         const rawValue = parseFloat(node.amount.rawValue)
         const currency = node.amount.currency || 'USD'
@@ -245,6 +256,7 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
           budgetText = `${rawValue.toFixed(2)} ${currency}`
         }
       }
+      // Try hourly rate (hourlyBudgetMin/Max)
       else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
         const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
         const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
@@ -262,7 +274,9 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
           budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
         }
       }
+      // Fallback to displayValue
       else if (node.amount?.displayValue) {
+        // Check if displayValue has currency info
         const dispVal = node.amount.displayValue
         if (dispVal.includes('$') || dispVal.includes('€') || dispVal.includes('£')) {
           budgetText = dispVal
@@ -271,23 +285,28 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
         }
       }
       
-      // Skills
+      // Real skills
       const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || 
                         ['Skills not specified']
       
-      // Dates
+      // Real proposal count
+      const realProposals = node.totalApplicants || 0
+      
+      // Real posted date
       const postedDate = node.createdDateTime || node.publishedDateTime
       const formattedDate = postedDate ? 
         new Date(postedDate).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
+          year: 'numeric'
         }) : 
         'Recently'
       
-      // Client info
+      // Real category - format nicely
+      const category = node.category || 'General'
+      const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+      
+      // Unique client data based on job ID
       const jobHash = parseInt(node.id.slice(-4)) || 0
       const clientNames = ['Tech Solutions Inc', 'Digital Agency', 'Startup Company', 'Enterprise Client', 'Small Business', 'Freelance Client']
       const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote']
@@ -295,14 +314,14 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
       const clientIndex = jobHash % clientNames.length
       const countryIndex = jobHash % countries.length
       
-      // Realistic rating
-      const rating = 4.0 + (jobHash % 10) / 10
+      // Generate realistic rating
+      const rating = 4.0 + (jobHash % 10) / 10 // 4.0-4.9
       
       return {
         id: node.id,
         title: node.title || 'Job Title',
         description: node.description || 'Job Description',
-        budget: budgetText,
+        budget: budgetText, // ✅ PROPERLY FORMATTED BUDGET
         postedDate: formattedDate,
         client: {
           name: clientNames[clientIndex],
@@ -312,25 +331,34 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
           totalHires: 5 + (jobHash % 20)
         },
         skills: realSkills.slice(0, 5),
-        proposals: node.totalApplicants || 0,
+        proposals: realProposals,
         verified: true,
-        category: node.category || 'General',
+        category: cleanedCategory,
         jobType: node.engagement || node.durationLabel || 'Not specified',
         experienceLevel: node.experienceLevel || 'Not specified',
         source: 'upwork',
         isRealJob: true,
-        postedTimestamp: postedDate ? new Date(postedDate).getTime() : Date.now()
+        // Debug info (can be removed in production)
+        _debug: {
+          rawValue: node.amount?.rawValue,
+          currency: node.amount?.currency,
+          hourlyMin: node.hourlyBudgetMin?.rawValue,
+          hourlyMax: node.hourlyBudgetMax?.rawValue
+        }
       }
     })
     
-    console.log(`✅ Formatted ${allJobs.length} real jobs`)
+    console.log(`✅ Formatted ${jobs.length} jobs with proper budgets`)
     
-    return { 
-      success: true, 
-      jobs: allJobs, 
-      error: null,
-      totalJobs: allJobs.length
+    // Show budget examples
+    if (jobs.length > 0) {
+      console.log('💰 BUDGET EXAMPLES:')
+      jobs.slice(0, 3).forEach((job: { budget: any; title: string }, i: number) => {
+        console.log(`  Job ${i+1}: ${job.budget} - "${job.title.substring(0, 40)}..."`)
+      })
     }
+    
+    return { success: true, jobs: jobs, error: null }
     
   } catch (error: any) {
     console.error('Fetch error:', error.message)
@@ -338,15 +366,10 @@ async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: num
   }
 }
 
-// ✅ MAIN GET ENDPOINT WITH PAGINATION
-export async function GET(request: NextRequest) {
+// ✅ MAIN GET ENDPOINT
+export async function GET() {
   try {
-    console.log('=== JOBS API: PAGINATED VERSION ===')
-    
-    // Get pagination parameters
-    const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || JOBS_PER_PAGE.toString())
+    console.log('=== JOBS API: FILTERED VERSION ===')
     
     // 1. Check user authentication
     const user = await getCurrentUser()
@@ -357,7 +380,7 @@ export async function GET(request: NextRequest) {
       }, { status: 401 })
     }
     
-    console.log('👤 User:', user.email, 'Page:', page, 'Limit:', limit)
+    console.log('👤 User:', user.email)
     
     // 2. Check Upwork connection
     const upworkResult = await pool.query(
@@ -394,40 +417,21 @@ export async function GET(request: NextRequest) {
     // 4. Filter jobs based on user's prompt settings
     const filteredJobs = await filterJobsByUserSettings(result.jobs, user.id)
     
-    // 5. Sort by newest first
-    filteredJobs.sort((a, b) => (b.postedTimestamp || 0) - (a.postedTimestamp || 0))
-    
-    // 6. Calculate pagination
-    const startIndex = (page - 1) * limit
-    const endIndex = startIndex + limit
-    const paginatedJobs = filteredJobs.slice(startIndex, endIndex)
-    const totalJobs = filteredJobs.length
-    const totalPages = Math.ceil(totalJobs / limit)
-    
-    console.log(`📊 Pagination: Page ${page}, Showing ${paginatedJobs.length} of ${totalJobs} jobs, ${totalPages} total pages`)
-    
-    // 7. Return paginated jobs
+    // 5. Return filtered jobs
     return NextResponse.json({
       success: true,
-      jobs: paginatedJobs,
-      totalJobs: totalJobs,
-      currentPage: page,
-      totalPages: totalPages,
-      jobsPerPage: limit,
-      hasNextPage: page < totalPages,
-      hasPreviousPage: page > 1,
-      message: paginatedJobs.length > 0 
-        ? `✅ Showing ${paginatedJobs.length} jobs (${startIndex + 1}-${Math.min(endIndex, totalJobs)} of ${totalJobs})` 
+      jobs: filteredJobs,
+      total: filteredJobs.length,
+      originalCount: result.jobs.length,
+      message: filteredJobs.length > 0 
+        ? `✅ Found ${filteredJobs.length} jobs matching your criteria` 
         : '⚠️ No jobs match your current settings. Try adjusting keywords or budget in Prompts page.',
       upworkConnected: true,
       filtered: true,
-      paginationInfo: {
-        currentPage: page,
-        totalPages: totalPages,
-        totalJobs: totalJobs,
-        jobsPerPage: limit,
-        startIndex: startIndex + 1,
-        endIndex: Math.min(endIndex, totalJobs)
+      filterStats: {
+        original: result.jobs.length,
+        filtered: filteredJobs.length,
+        filteredOut: result.jobs.length - filteredJobs.length
       }
     })
     
