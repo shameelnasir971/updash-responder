@@ -5,6 +5,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Sidebar from './Sidebar'
+import Topbar from './Topbar'
+
+interface User {
+  id: number
+  name: string
+  email: string
+  company_name: string
+}
 
 export default function DashboardLayout({
   children,
@@ -12,7 +20,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -23,10 +31,9 @@ export default function DashboardLayout({
   const checkAuth = async () => {
     try {
       const response = await fetch('/api/auth')
-      const data = await response.json()
-      
-      if (data.authenticated && data.user) {
-        setUser(data.user)
+      if (response.ok) {
+        const userData = await response.json()
+        setUser(userData)
       } else {
         router.push('/auth/login')
       }
@@ -42,7 +49,7 @@ export default function DashboardLayout({
       await fetch('/api/auth', { method: 'DELETE' })
       router.push('/auth/login')
     } catch (error) {
-      console.error('Logout error:', error)
+      console.error('Sign out error:', error)
     }
   }
 
@@ -58,17 +65,27 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="h-screen flex overflow-hidden bg-gray-50">
       <Sidebar 
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         user={user}
         handleSignOut={handleSignOut}
       />
-      
-      <main className="flex-1 lg:ml-80">
-        {children}
-      </main>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Topbar 
+          user={user}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+        />
+        
+        {/* Page Content */}
+        <main className="flex-1 relative overflow-y-auto focus:outline-none">
+          {children}
+        </main>
+      </div>
     </div>
   )
 }
