@@ -10,7 +10,6 @@
     "setup-db": "node scripts/setup-database.js"
   },
   "dependencies": {
-    "@tailwindcss/line-clamp": "^0.4.4",
     "bcryptjs": "^2.4.3",
     "dotenv": "^17.2.3",
     "jsonwebtoken": "^9.0.2",
