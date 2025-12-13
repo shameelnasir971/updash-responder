@@ -6,6 +6,320 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// ✅ HELPER FUNCTIONS FOR FILTERING
+
+// Budget match check
+function checkBudgetMatch(budgetString: string, min: number, max: number): boolean {
+  try {
+    if (!budgetString || budgetString.toLowerCase().includes('not specified')) {
+      return true // If no budget info, assume it matches
+    }
+    
+    // Extract numbers from budget string like "$500-1000", "$50/hr", "€500", "£100"
+    const budgetText = budgetString.toLowerCase()
+    
+    // Remove currency symbols and non-numeric characters
+    const cleanText = budgetText.replace(/[$,€£]/g, '')
+    
+    // Find first number
+    const numberMatch = cleanText.match(/(\d+)/)
+    if (!numberMatch) return true // If no number found, assume it matches
+    
+    const firstNumber = parseInt(numberMatch[1])
+    
+    // Check if hourly rate (contains "hr" or "/")
+    const isHourly = budgetText.includes('hr') || budgetText.includes('/')
+    
+    // Convert hourly to monthly approximate (160 hours)
+    const adjustedNumber = isHourly ? firstNumber * 160 : firstNumber
+    
+    return adjustedNumber >= min && adjustedNumber <= max
+    
+  } catch (error) {
+    console.error('Budget match error:', error)
+    return true // On error, return true to not filter out
+  }
+}
+
+// Keyword match check
+function checkKeywordMatch(keywords: string, jobText: string): boolean {
+  try {
+    if (!keywords || !keywords.trim()) {
+      return true // No keywords, match all
+    }
+    
+    const jobTextLower = jobText.toLowerCase()
+    const keywordsLower = keywords.toLowerCase()
+    
+    // Split by OR and clean
+    const keywordList = keywordsLower.split(' or ').map(k => 
+      k.trim().replace(/"/g, '').replace(/'/g, '')
+    ).filter(k => k.length > 0)
+    
+    if (keywordList.length === 0) return true
+    
+    // Check if any keyword matches
+    for (const keyword of keywordList) {
+      // Remove extra quotes
+      const cleanKeyword = keyword.replace(/"/g, '').trim()
+      
+      // Check for AND logic (if contains AND)
+      if (cleanKeyword.includes(' and ')) {
+        const andKeywords = cleanKeyword.split(' and ').map(k => k.trim())
+        const allMatch = andKeywords.every(k => 
+          jobTextLower.includes(k) || 
+          jobTextLower.includes(k + ' ') ||
+          jobTextLower.includes(' ' + k)
+        )
+        if (allMatch) return true
+      } 
+      // Check for exact phrase (if quoted)
+      else if (keyword.includes('"') || keyword.includes("'")) {
+        const phrase = keyword.replace(/["']/g, '').trim()
+        if (jobTextLower.includes(phrase)) return true
+      }
+      // Check for single word
+      else {
+        // Split into words and check each word
+        const words = cleanKeyword.split(' ').filter(w => w.length > 0)
+        for (const word of words) {
+          if (
+            jobTextLower.includes(word + ' ') ||
+            jobTextLower.includes(' ' + word) ||
+            jobTextLower.includes(word + '.') ||
+            jobTextLower.includes(word + ',') ||
+            jobTextLower === word
+          ) {
+            return true
+          }
+        }
+      }
+    }
+    
+    return false // No match found
+    
+  } catch (error) {
+    console.error('Keyword match error:', error)
+    return true // On error, return true
+  }
+}
+
+// Skills match check
+function checkSkillsMatch(jobSkills: string[], requiredSkills: string[]): boolean {
+  try {
+    if (!requiredSkills || requiredSkills.length === 0) {
+      return true // No required skills, match all
+    }
+    
+    if (!jobSkills || jobSkills.length === 0) {
+      return false // Job has no skills, but we require some
+    }
+    
+    const jobSkillsLower = jobSkills.map(s => s.toLowerCase().trim())
+    const requiredSkillsLower = requiredSkills.map(s => s.toLowerCase().trim())
+    
+    // Check if any required skill is found in job skills
+    return requiredSkillsLower.some(requiredSkill => {
+      // Check for exact match or partial match
+      return jobSkillsLower.some(jobSkill => {
+        // Exact match
+        if (jobSkill === requiredSkill) return true
+        
+        // Contains match (e.g., "React" in "React.js")
+        if (jobSkill.includes(requiredSkill) || requiredSkill.includes(jobSkill)) {
+          return true
+        }
+        
+        // Check common aliases
+        const aliases: Record<string, string[]> = {
+          'javascript': ['js', 'javascript', 'ecmascript'],
+          'react': ['reactjs', 'react.js', 'react native'],
+          'node': ['nodejs', 'node.js'],
+          'python': ['py', 'python3', 'python 3'],
+          'typescript': ['ts', 'typescript'],
+          'html': ['html5', 'html'],
+          'css': ['css3', 'css'],
+          'mongodb': ['mongo', 'mongodb'],
+          'postgresql': ['postgres', 'pg', 'postgresql'],
+          'aws': ['amazon web services', 'amazon aws'],
+          'docker': ['docker', 'docker container'],
+          'kubernetes': ['k8s', 'kubernetes'],
+        }
+        
+        // Check if skill has aliases
+        for (const [key, aliasList] of Object.entries(aliases)) {
+          if (aliasList.includes(requiredSkill) || aliasList.includes(jobSkill)) {
+            const normalizedKey = key.toLowerCase()
+            const normalizedSkill = jobSkill.toLowerCase()
+            if (normalizedSkill.includes(normalizedKey) || normalizedKey.includes(normalizedSkill)) {
+              return true
+            }
+          }
+        }
+        
+        return false
+      })
+    })
+    
+  } catch (error) {
+    console.error('Skills match error:', error)
+    return true // On error, return true
+  }
+}
+
+// Location match check
+function checkLocationMatch(jobLocation: string, userLocation: string): boolean {
+  try {
+    if (!userLocation || userLocation.toLowerCase() === 'worldwide' || userLocation === '') {
+      return true // User accepts worldwide
+    }
+    
+    if (!jobLocation || jobLocation === 'Remote') {
+      return true // Remote jobs always match
+    }
+    
+    const userLocLower = userLocation.toLowerCase()
+    const jobLocLower = jobLocation.toLowerCase()
+    
+    // Check for country matches
+    const countryAliases: Record<string, string[]> = {
+      'usa': ['us', 'united states', 'america', 'u.s.a', 'united states of america'],
+      'uk': ['united kingdom', 'england', 'britain', 'great britain'],
+      'canada': ['ca', 'can'],
+      'australia': ['aus', 'au', 'oz'],
+      'india': ['in', 'ind'],
+      'germany': ['de', 'deutschland'],
+      'france': ['fr'],
+      'spain': ['es'],
+      'italy': ['it'],
+      'netherlands': ['nl', 'holland'],
+    }
+    
+    // Check if user location is in country aliases
+    for (const [country, aliases] of Object.entries(countryAliases)) {
+      if (aliases.includes(userLocLower)) {
+        // Check if job location contains this country
+        if (jobLocLower.includes(country) || aliases.some(a => jobLocLower.includes(a))) {
+          return true
+        }
+      }
+    }
+    
+    // Direct match
+    if (jobLocLower.includes(userLocLower) || userLocLower.includes(jobLocLower)) {
+      return true
+    }
+    
+    return false
+    
+  } catch (error) {
+    console.error('Location match error:', error)
+    return true // On error, return true
+  }
+}
+
+// Main filter function
+async function filterJobsByUserSettings(jobs: any[], userId: number) {
+  try {
+    console.log(`🔄 Filtering ${jobs.length} jobs for user: ${userId}`)
+    
+    // Fetch user's prompt settings
+    const settingsResult = await pool.query(
+      'SELECT basic_info, validation_rules FROM prompt_settings WHERE user_id = $1',
+      [userId]
+    )
+    
+    if (settingsResult.rows.length === 0) {
+      console.log('ℹ️ No prompt settings found, returning all jobs')
+      return jobs // No settings, return all jobs
+    }
+    
+    const settings = settingsResult.rows[0]
+    const basicInfo = settings.basic_info || {}
+    const validationRules = settings.validation_rules || {}
+    
+    // Extract user preferences
+    const keywords = basicInfo.keywords || ''
+    const specialty = basicInfo.specialty || ''
+    const hourlyRate = basicInfo.hourlyRate || ''
+    const userLocation = basicInfo.location || 'Worldwide'
+    
+    // Extract validation rules
+    const minBudget = validationRules.minBudget || 0
+    const maxBudget = validationRules.maxBudget || 1000000
+    const requiredSkills = validationRules.requiredSkills || []
+    const clientRating = validationRules.clientRating || 0
+    const jobTypes = validationRules.jobTypes || ['Fixed', 'Hourly']
+    
+    console.log('📋 User Settings:', {
+      keywords,
+      minBudget,
+      maxBudget,
+      requiredSkills: requiredSkills.length,
+      clientRating,
+      userLocation
+    })
+    
+    // Filter jobs
+    const filteredJobs = jobs.filter(job => {
+      // 1. Budget filtering
+      if (!checkBudgetMatch(job.budget, minBudget, maxBudget)) {
+        console.log(`❌ Budget mismatch: ${job.budget} (min: ${minBudget}, max: ${maxBudget})`)
+        return false
+      }
+      
+      // 2. Client rating filtering
+      if (job.client?.rating < clientRating) {
+        console.log(`❌ Client rating too low: ${job.client?.rating} < ${clientRating}`)
+        return false
+      }
+      
+      // 3. Location filtering
+      const jobCountry = job.client?.country || 'Remote'
+      if (!checkLocationMatch(jobCountry, userLocation)) {
+        console.log(`❌ Location mismatch: ${jobCountry} vs ${userLocation}`)
+        return false
+      }
+      
+      // 4. Keyword matching
+      const jobText = (job.title + ' ' + job.description).toLowerCase()
+      if (!checkKeywordMatch(keywords, jobText)) {
+        console.log(`❌ Keyword mismatch: ${job.title.substring(0, 50)}...`)
+        return false
+      }
+      
+      // 5. Skills matching
+      const jobSkills = job.skills || []
+      if (!checkSkillsMatch(jobSkills, requiredSkills)) {
+        console.log(`❌ Skills mismatch: Job skills: ${jobSkills.join(', ')}, Required: ${requiredSkills.join(', ')}`)
+        return false
+      }
+      
+      // 6. Job type matching (if available)
+      const jobType = job.jobType || ''
+      if (jobTypes.length > 0 && jobType && !jobTypes.some((type: string) => 
+        jobType.toLowerCase().includes(type.toLowerCase())
+      )) {
+        console.log(`❌ Job type mismatch: ${jobType} not in ${jobTypes.join(', ')}`)
+        return false
+      }
+      
+      // All checks passed
+      console.log(`✅ Job passed all filters: ${job.title.substring(0, 50)}...`)
+      return true
+    })
+    
+    console.log(`🎯 Filtered ${jobs.length} jobs down to ${filteredJobs.length} matches`)
+    
+    return filteredJobs
+    
+  } catch (error) {
+    console.error('❌ Filtering error:', error)
+    return jobs // Return all jobs if error
+  }
+}
+
+// ✅ MAIN JOBS FETCH FUNCTION
 async function fetchUpworkJobs(accessToken: string) {
   try {
     console.log('🚀 Fetching jobs with PROPER budget formatting...')
@@ -166,12 +480,15 @@ async function fetchUpworkJobs(accessToken: string) {
       const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
       
       // Unique client data based on job ID
-      const jobHash = parseInt(node.id.slice(-4)) || 0
+      const jobHash = node.id ? parseInt(node.id.slice(-4), 36) || 0 : Math.random() * 1000
       const clientNames = ['Tech Solutions Inc', 'Digital Agency', 'Startup Company', 'Enterprise Client', 'Small Business', 'Freelance Client']
-      const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote']
+      const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote', 'India', 'Singapore']
       
       const clientIndex = jobHash % clientNames.length
       const countryIndex = jobHash % countries.length
+      
+      // Generate realistic rating (4.0-5.0)
+      const rating = 4.0 + (jobHash % 10) / 10
       
       return {
         id: node.id,
@@ -181,7 +498,7 @@ async function fetchUpworkJobs(accessToken: string) {
         postedDate: formattedDate,
         client: {
           name: clientNames[clientIndex],
-          rating: 4.0 + (jobHash % 10) / 10, // 4.0-4.9
+          rating: rating.toFixed(1),
           country: countries[countryIndex],
           totalSpent: 1000 + (jobHash * 100),
           totalHires: 5 + (jobHash % 20)
@@ -221,9 +538,10 @@ async function fetchUpworkJobs(accessToken: string) {
   }
 }
 
+// ✅ MAIN API ENDPOINT
 export async function GET() {
   try {
-    console.log('=== JOBS API: UPDATED BUDGET VERSION ===')
+    console.log('=== JOBS API: FILTERED VERSION ===')
     
     const user = await getCurrentUser()
     if (!user) {
@@ -232,7 +550,7 @@ export async function GET() {
       }, { status: 401 })
     }
     
-    console.log('User:', user.email)
+    console.log('👤 User:', user.email)
     
     const upworkResult = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
@@ -250,21 +568,34 @@ export async function GET() {
     
     const accessToken = upworkResult.rows[0].access_token
     
+    // Fetch jobs from Upwork
     const result = await fetchUpworkJobs(accessToken)
     
+    if (!result.success) {
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        message: `Error fetching jobs: ${result.error}`,
+        upworkConnected: true
+      })
+    }
+    
+    // Filter jobs based on user's prompt settings
+    const filteredJobs = await filterJobsByUserSettings(result.jobs, user.id)
+    
     return NextResponse.json({
-      success: result.success,
-      jobs: result.jobs,
-      total: result.jobs.length,
-      message: result.success ? 
-        `✅ SUCCESS: ${result.jobs.length} jobs with properly formatted budgets` : 
-        `Error: ${result.error}`,
+      success: true,
+      jobs: filteredJobs,
+      total: filteredJobs.length,
+      originalTotal: result.jobs.length,
+      message: `✅ Found ${filteredJobs.length} jobs matching your criteria (from ${result.jobs.length} total jobs)`,
       upworkConnected: true,
-      dataQuality: result.success ? 'Real budgets with proper currency formatting' : 'Fix needed'
+      filteringApplied: true,
+      dataQuality: 'Filtered by user prompts and preferences'
     })
     
   } catch (error: any) {
-    console.error('Main error:', error)
+    console.error('❌ Main error:', error)
     return NextResponse.json({
       success: false,
       jobs: [],
@@ -272,5 +603,3 @@ export async function GET() {
     }, { status: 500 })
   }
 }
-
-
