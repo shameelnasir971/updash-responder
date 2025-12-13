@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-// import debounce from 'lodash/debounce'
+import { useRouter } from 'next/navigation'
 import Sidebar from '@/components/Layout/Sidebar'
 
 interface User {
@@ -45,7 +45,21 @@ interface Pagination {
   hasPrevPage: boolean
 }
 
+// ✅ Custom debounce function (lodash alternative)
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null
+  
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout)
+    timeout = setTimeout(() => func(...args), wait)
+  }
+}
+
 export default function Dashboard() {
+  const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [jobs, setJobs] = useState<Job[]>([])
@@ -181,7 +195,7 @@ export default function Dashboard() {
     }
   }
 
-  // Debounced search
+  // ✅ Debounced search with custom function
   const debouncedSearch = useCallback(
     debounce((query: string) => {
       loadJobs(1, query)
@@ -904,8 +918,4 @@ export default function Dashboard() {
       )}
     </div>
   )
-}
-
-function debounce(arg0: (query: string) => void, arg1: number): any {
-  throw new Error('Function not implemented.')
 }
