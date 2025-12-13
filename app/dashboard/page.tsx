@@ -72,7 +72,7 @@ const loadJobs = async () => {
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs with FIXED query...')
+    console.log('🔄 Loading jobs with UPDATED query...')
     const response = await fetch('/api/upwork/jobs')
     
     if (response.status === 401) {
@@ -86,7 +86,7 @@ const loadJobs = async () => {
       success: data.success,
       count: data.jobs?.length,
       message: data.message,
-      source: data.debug?.source
+      firstJobBudget: data.jobs?.[0]?.budget
     })
 
     if (data.success) {
@@ -94,20 +94,25 @@ const loadJobs = async () => {
       setUpworkConnected(data.upworkConnected || false)
       
       if (data.jobs?.length === 0) {
-        setConnectionError(data.message || 'No active jobs found. Try again in a few minutes.')
+        setConnectionError('No active jobs found. Try again in a few minutes.')
       } else if (data.jobs?.length > 0) {
-        // Show success message with source info
-        const source = data.debug?.source === 'upwork_rest' ? 'REST API' : 'GraphQL API'
-        setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs via ${source}`)
+        setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+        
+        // Debug: Check first job
+        console.log('🔍 First job sample:', {
+          title: data.jobs[0]?.title,
+          budget: data.jobs[0]?.budget,
+          client: data.jobs[0]?.client?.name
+        })
       }
     } else {
-      setConnectionError(data.message || 'Failed to load jobs. Trying again...')
+      setConnectionError(data.message || 'Failed to load jobs.')
       setJobs([])
     }
     
   } catch (error: any) {
     console.error('❌ Load jobs error:', error)
-    setConnectionError('Network error. Please check your connection.')
+    setConnectionError('Network error. Please check connection.')
     setJobs([])
   } finally {
     setJobsLoading(false)

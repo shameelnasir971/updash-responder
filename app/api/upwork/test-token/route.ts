@@ -11,17 +11,28 @@ export async function GET() {
     
     const accessToken = result.rows[0].access_token
     
-    // Exact same query as debug endpoint
+    // Minimal working query
     const testQuery = {
       query: `
-        query TestReal {
+        query QuickTest {
           marketplaceJobPostingsSearch {
             totalCount
             edges {
               node {
                 id
                 title
-                description
+                amount {
+                  rawValue
+                  currency
+                  displayValue
+                }
+                hourlyBudgetMin {
+                  rawValue
+                  currency
+                }
+                client {
+                  displayName
+                }
               }
             }
           }
@@ -38,30 +49,15 @@ export async function GET() {
       body: JSON.stringify(testQuery)
     })
     
-    if (!response.ok) {
-      return NextResponse.json({
-        error: 'API call failed',
-        status: response.status
-      })
-    }
-    
     const data = await response.json()
-    
-    // Format some real jobs
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    const sampleJobs = edges.slice(0, 5).map((edge: any) => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      description: edge.node.description?.substring(0, 100) || 'No description',
-      isReal: true
-    }))
     
     return NextResponse.json({
       success: true,
-      tokenValid: true,
+      queryWorks: !data.errors,
       totalJobs: data.data?.marketplaceJobPostingsSearch?.totalCount,
-      sampleJobs: sampleJobs,
-      edgesCount: edges.length
+      sampleJob: data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node,
+      availableFields: data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node ? 
+        Object.keys(data.data.marketplaceJobPostingsSearch.edges[0].node) : []
     })
     
   } catch (error: any) {
