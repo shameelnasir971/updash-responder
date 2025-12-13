@@ -1,4 +1,4 @@
-// components/Layout/Sidebar.tsx - SIMPLE VERSION
+// components/Layout/Sidebar.tsx 
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'

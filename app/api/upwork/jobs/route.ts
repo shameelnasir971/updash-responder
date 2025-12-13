@@ -262,6 +262,9 @@ export async function GET() {
       upworkConnected: true,
       dataQuality: result.success ? 'Real budgets with proper currency formatting' : 'Fix needed'
     })
+   
+    
+
     
   } catch (error: any) {
     console.error('Main error:', error)
@@ -269,6 +272,104 @@ export async function GET() {
       success: false,
       jobs: [],
       message: 'Server error: ' + error.message
+    }, { status: 500 })
+  }
+}
+
+
+
+
+// Current GET function ke baad yeh naya function add karein:
+export async function POST(request: NextRequest) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ 
+        error: 'Not authenticated' 
+      }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { searchQuery, category, minBudget, maxBudget } = body
+    
+    console.log('🔍 Search request:', { searchQuery, category })
+
+    const upworkResult = await pool.query(
+      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
+      [user.id]
+    )
+    
+    if (upworkResult.rows.length === 0) {
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        message: 'Connect Upwork account first'
+      })
+    }
+    
+    const accessToken = upworkResult.rows[0].access_token
+    
+    // ✅ Modified GraphQL query with search parameters
+    const graphqlQuery = {
+      query: `
+        query GetMarketplaceJobs($search: String) {
+          marketplaceJobPostingsSearch(
+            filter: { 
+              ${searchQuery ? `any: $search` : ''}
+              ${category && category !== 'all' ? `category: $category` : ''}
+            }
+          ) {
+            edges {
+              node {
+                id
+                title
+                description
+                amount {
+                  rawValue
+                  currency
+                  displayValue
+                }
+                hourlyBudgetMin {
+                  rawValue
+                  currency
+                  displayValue
+                }
+                hourlyBudgetMax {
+                  rawValue
+                  currency
+                  displayValue
+                }
+                skills {
+                  name
+                }
+                totalApplicants
+                category
+                createdDateTime
+                publishedDateTime
+                experienceLevel
+                engagement
+                duration
+                durationLabel
+              }
+            }
+          }
+        }
+      `,
+      variables: {
+        ...(searchQuery && { search: searchQuery }),
+        ...(category && category !== 'all' && { category })
+      }
+    }
+    
+    // Rest of the code same as before...
+    // ...
+    
+  } catch (error: any) {
+    console.error('Search API error:', error)
+    return NextResponse.json({
+      success: false,
+      jobs: [],
+      message: 'Search failed: ' + error.message
     }, { status: 500 })
   }
 }

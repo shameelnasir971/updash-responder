@@ -1,4 +1,4 @@
-// app/api/jobs/route.ts - SUPER SIMPLE WORKING VERSION
+// app/api/jobs/route.ts 
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../lib/auth'

@@ -1,4 +1,4 @@
-// app/api/auth/route.ts - COMPLETE FIXED VERSION
+// app/api/auth/route.ts 
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
