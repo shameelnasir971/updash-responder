@@ -1,13 +1,13 @@
 // app/api/upwork/route.ts
 
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../lib/auth'
 import pool from '../../../lib/database'
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
-
-// ✅ Simple API Key based authentication
+// Simple API Key based authentication (Direct API calls)
 async function makeUpworkApiCall(apiKey: string, endpoint: string) {
   try {
     const response = await fetch(`https://www.upwork.com/api/v3/${endpoint}`, {
@@ -28,7 +28,6 @@ async function makeUpworkApiCall(apiKey: string, endpoint: string) {
   }
 }
 
-// ✅ GET: Generate OAuth URL or check connection
 export async function GET(request: NextRequest) {
   try {
     // Check authentication
@@ -85,7 +84,7 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', 'r_compact r_work_calendar r_work_agreements r_work_feed r_work_workspace r_work_messages r_work_messages:write r_work_jobs r_work_jobs:write r_work_profile r_work_search r_work_activity r_work_interviews r_work_proposals:write r_work_contracts r_work_timeline')
+    // authUrl.searchParams.set('scope', 'r_jobs')      
     const state = Buffer.from(Date.now().toString()).toString('base64')
     authUrl.searchParams.set('state', state)
 
@@ -105,7 +104,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ✅ POST: Handle disconnect, OAuth callback, or other actions
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -126,8 +124,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'OAuth not configured' }, { status: 500 })
       }
 
-      console.log('🔄 Exchanging OAuth code for tokens...')
-
       // Exchange code for access token
       const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
         method: 'POST',
@@ -144,15 +140,10 @@ export async function POST(request: NextRequest) {
       })
 
       if (!tokenResponse.ok) {
-        const errorText = await tokenResponse.text()
-        console.error('❌ Token exchange failed:', errorText)
-        return NextResponse.json({ 
-          error: 'Failed to exchange authorization code for token' 
-        }, { status: 400 })
+        throw new Error('Token exchange failed')
       }
 
       const tokenData = await tokenResponse.json()
-      console.log('✅ Token exchange successful')
       
       // Save tokens to database
       await pool.query(
@@ -165,34 +156,23 @@ export async function POST(request: NextRequest) {
            expires_at = $4, 
            updated_at = NOW()`,
         [user.id, tokenData.access_token, tokenData.refresh_token, 
-         new Date(Date.now() + (tokenData.expires_in || 3600) * 1000)]
+         new Date(Date.now() + tokenData.expires_in * 1000)]
       )
 
       return NextResponse.json({ 
         success: true,
-        message: 'Upwork account connected successfully!'
+        message: 'Upwork account connected successfully'
       })
     }
 
-    // ✅ Handle disconnect action
+    // Handle disconnect action
     if (action === 'disconnect') {
-      console.log('🚫 Disconnecting Upwork account for user:', user.id)
-      
       await pool.query(
         'DELETE FROM upwork_accounts WHERE user_id = $1',
         [user.id]
       )
       
-      // Also delete any related jobs/proposals
-      await pool.query(
-        'UPDATE proposals SET status = $1 WHERE user_id = $2 AND status = $3',
-        ['disconnected', user.id, 'sent']
-      )
-      
-      console.log('✅ Upwork account disconnected')
-      
       return NextResponse.json({ 
-        success: true,
         message: 'Upwork account disconnected successfully' 
       })
     }
