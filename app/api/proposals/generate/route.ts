@@ -3,12 +3,40 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
+
+// ✅ Load user's learned patterns from previous edits
+async function getLearnedPatterns(userId: number) {
+  try {
+    const result = await pool.query(
+      `SELECT learned_patterns FROM proposal_edits 
+       WHERE user_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 10`,
+      [userId]
+    )
+    
+    const patterns: string[] = []
+    result.rows.forEach(row => {
+      if (row.learned_patterns && Array.isArray(row.learned_patterns)) {
+        patterns.push(...row.learned_patterns)
+      }
+    })
+    
+    // Get unique patterns
+    const uniquePatterns = [...new Set(patterns)]
+    return uniquePatterns.slice(0, 5) // Return top 5 patterns
+  } catch (error) {
+    console.error('Error loading learned patterns:', error)
+    return []
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,13 +45,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please login first' }, { status: 401 })
     }
 
-    const { jobId, jobTitle, jobDescription, clientInfo, budget, skills } = await request.json()
+    const { jobId, jobTitle, jobDescription, clientInfo, budget, skills, userSettings } = await request.json()
 
     if (!jobDescription) {
       return NextResponse.json({ error: 'Job description is required' }, { status: 400 })
     }
 
-    console.log('🤖 Generating professional proposal for:', jobTitle)
+    console.log('🤖 Generating AI-powered proposal for:', jobTitle)
 
     // Load user's prompt settings for personalized proposals
     const settingsResult = await pool.query(
@@ -31,13 +59,15 @@ export async function POST(request: NextRequest) {
       [user.id]
     )
 
-    let userSettings = {
+    let userPromptSettings = {
       basicInfo: {
         specialty: 'Full Stack Development',
         provisions: 'Web Applications, Mobile Apps, API Development',
         hourlyRate: '$25-50',
         name: user.name,
-        company: user.company_name || ''
+        company: user.company_name || '',
+        experience: '5+ years',
+        portfolio: 'Multiple successful projects'
       },
       proposalTemplates: [
         {
@@ -54,39 +84,50 @@ export async function POST(request: NextRequest) {
 
     if (settingsResult.rows.length > 0) {
       const dbSettings = settingsResult.rows[0]
-      userSettings = {
-        basicInfo: dbSettings.basic_info || userSettings.basicInfo,
-        proposalTemplates: dbSettings.proposal_templates || userSettings.proposalTemplates,
-        aiSettings: dbSettings.ai_settings || userSettings.aiSettings
+      userPromptSettings = {
+        basicInfo: dbSettings.basic_info || userPromptSettings.basicInfo,
+        proposalTemplates: dbSettings.proposal_templates || userPromptSettings.proposalTemplates,
+        aiSettings: dbSettings.ai_settings || userPromptSettings.aiSettings
       }
     }
 
-    // Select the best template based on job
-    const selectedTemplate = selectBestTemplate(jobDescription, userSettings.proposalTemplates)
+    // ✅ Load learned patterns from user's previous edits
+    const learnedPatterns = await getLearnedPatterns(user.id)
+    console.log('🧠 Learned patterns:', learnedPatterns)
 
-    // Build advanced prompt with user's personal info
+    // Select the best template based on job
+    const selectedTemplate = selectBestTemplate(jobDescription, userPromptSettings.proposalTemplates)
+
+    // Build advanced prompt with user's personal info and learned patterns
     const prompt = `
-ROLE: You are ${user.name}, a professional ${userSettings.basicInfo.specialty}.
+ROLE: You are ${user.name}, a professional ${userPromptSettings.basicInfo.specialty}.
 
 JOB DETAILS:
 Title: ${jobTitle}
 Description: ${jobDescription}
 Budget: ${budget || 'Not specified'}
 Required Skills: ${Array.isArray(skills) ? skills.join(', ') : skills || 'Not specified'}
-Client: ${clientInfo?.name || 'Unknown'} (Rating: ${clientInfo?.rating || 'N/A'})
+Client: ${clientInfo?.name || 'Unknown'} (Rating: ${clientInfo?.rating || 'N/A'}, Country: ${clientInfo?.country || 'Remote'})
 
 YOUR PROFILE:
-Specialty: ${userSettings.basicInfo.specialty}
-Services: ${userSettings.basicInfo.provisions}
-Hourly Rate: ${userSettings.basicInfo.hourlyRate}
-Company: ${userSettings.basicInfo.company || 'Freelance Professional'}
+Specialty: ${userPromptSettings.basicInfo.specialty}
+Services: ${userPromptSettings.basicInfo.provisions}
+Hourly Rate: ${userPromptSettings.basicInfo.hourlyRate}
+Company: ${userPromptSettings.basicInfo.company || 'Freelance Professional'}
+Experience: ${userPromptSettings.basicInfo.experience}
+Portfolio: ${userPromptSettings.basicInfo.portfolio}
 
 TEMPLATE INSTRUCTIONS:
 ${selectedTemplate.content}
 
+LEARNED FROM USER'S PREVIOUS EDITS:
+${learnedPatterns.length > 0 
+  ? `The user prefers proposals that: ${learnedPatterns.join(', ')}` 
+  : 'No patterns learned yet'}
+
 SPECIFIC REQUIREMENTS:
 1. Address EXACT requirements from job description
-2. Show 2-3 relevant skills from: ${userSettings.basicInfo.provisions}
+2. Show 2-3 relevant skills from: ${userPromptSettings.basicInfo.provisions}
 3. Mention similar project experience briefly
 4. Ask 1-2 specific questions about the project
 5. Keep professional but friendly tone
@@ -99,7 +140,7 @@ IMPORTANT: Do NOT make up facts about client. Only use information provided.
 
     try {
       const completion = await openai.chat.completions.create({
-        model: userSettings.aiSettings.model || 'gpt-4',
+        model: userPromptSettings.aiSettings.model || 'gpt-4',
         messages: [
           { 
             role: "system", 
@@ -107,8 +148,8 @@ IMPORTANT: Do NOT make up facts about client. Only use information provided.
           },
           { role: "user", content: prompt }
         ],
-        max_tokens: userSettings.aiSettings.maxTokens || 600,
-        temperature: userSettings.aiSettings.temperature || 0.3,
+        max_tokens: userPromptSettings.aiSettings.maxTokens || 600,
+        temperature: userPromptSettings.aiSettings.temperature || 0.3,
       })
 
       const proposal = completion.choices[0]?.message?.content
@@ -122,21 +163,25 @@ IMPORTANT: Do NOT make up facts about client. Only use information provided.
 
       // Save to database for AI training and history
       await pool.query(
-        `INSERT INTO proposals (user_id, job_id, job_title, job_description, generated_proposal, ai_model, temperature, status, created_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'generated', NOW())`,
-        [user.id, jobId, jobTitle, jobDescription, cleanedProposal, 
-         userSettings.aiSettings.model, userSettings.aiSettings.temperature]
+        `INSERT INTO proposals (user_id, job_id, job_title, job_description, client_info, budget, skills, generated_proposal, ai_model, temperature, status, created_at) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'generated', NOW())`,
+        [user.id, jobId, jobTitle, jobDescription, clientInfo || {}, budget || 'Not specified', 
+         skills || [], cleanedProposal, userPromptSettings.aiSettings.model, 
+         userPromptSettings.aiSettings.temperature]
       )
+
+      console.log('✅ Proposal generated with AI training data')
 
       return NextResponse.json({ 
         success: true,
         proposal: cleanedProposal,
         message: 'Professional proposal generated successfully!',
         details: {
-          model: userSettings.aiSettings.model,
-          temperature: userSettings.aiSettings.temperature,
+          model: userPromptSettings.aiSettings.model,
+          temperature: userPromptSettings.aiSettings.temperature,
           length: cleanedProposal.length,
-          template: selectedTemplate.title
+          template: selectedTemplate.title,
+          learnedPatternsUsed: learnedPatterns.length
         }
       })
 
@@ -144,16 +189,8 @@ IMPORTANT: Do NOT make up facts about client. Only use information provided.
       console.error('OpenAI error:', aiError)
       
       // Fallback proposal
-      const fallbackProposal = generateFallbackProposal(jobTitle, jobDescription, user.name, skills)
+      const fallbackProposal = generateFallbackProposal(jobTitle, jobDescription, user.name, skills, userPromptSettings)
       
-      // Save fallback to database
-      await pool.query(
-        `INSERT INTO proposals (user_id, job_id, job_title, job_description, generated_proposal, ai_model, temperature, status, created_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'generated_fallback', NOW())`,
-        [user.id, jobId, jobTitle, jobDescription, fallbackProposal, 
-         'fallback', 0]
-      )
-
       return NextResponse.json({ 
         success: true,
         proposal: fallbackProposal,
@@ -214,14 +251,15 @@ function cleanProposal(proposal: string, userName: string): string {
 }
 
 // Generate fallback proposal
-function generateFallbackProposal(jobTitle: string, jobDescription: string, userName: string, skills: any): string {
+function generateFallbackProposal(jobTitle: string, jobDescription: string, userName: string, skills: any, userSettings: any): string {
   const skillText = Array.isArray(skills) ? skills.slice(0, 3).join(', ') : 'this field'
+  const specialty = userSettings?.basicInfo?.specialty || 'web development'
   
   return `Dear Client,
 
 I am writing to express my interest in your "${jobTitle}" project. 
 
-Based on the job description, I understand you need someone with experience in ${skillText}. I have successfully completed similar projects where I delivered high-quality results on time and within budget.
+As a professional ${specialty} with experience in ${skillText}, I have successfully completed similar projects where I delivered high-quality results on time and within budget.
 
 My approach focuses on clear communication, regular updates, and attention to detail to ensure your project's success.
 
