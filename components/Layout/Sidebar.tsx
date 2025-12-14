@@ -2,7 +2,7 @@
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
-import { useState } from 'react' // ✅ useEffect HATA DO
+import { useState, useEffect } from 'react'
 
 export default function Sidebar({
   sidebarOpen,
@@ -13,30 +13,75 @@ export default function Sidebar({
   const router = useRouter()
   const pathname = usePathname()
   const [connecting, setConnecting] = useState(false)
-  
-  // ✅ SIMPLE STATIC NAVIGATION
+  const [upworkConnected, setUpworkConnected] = useState(false)
+  const [loadingConnection, setLoadingConnection] = useState(true)
+
+  // ✅ Upwork connection status check karo
+  useEffect(() => {
+    checkUpworkStatus()
+  }, [])
+
+  const checkUpworkStatus = async () => {
+    try {
+      const response = await fetch('/api/upwork/status')
+      const data = await response.json()
+      setUpworkConnected(data.connected || false)
+    } catch (error) {
+      console.error('Connection status error:', error)
+      setUpworkConnected(false)
+    } finally {
+      setLoadingConnection(false)
+    }
+  }
+
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'History', href: '/dashboard/history', icon: '📝' },
+    { name: 'Prompts', href: '/dashboard/prompts', icon: '🤖' },
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
-  // ✅ SIMPLE HANDLE CONNECT - NO STATUS CHECK
   const handleConnectUpwork = async () => {
     setConnecting(true)
     
     try {
-      // ✅ DIRECT URL USE KARO - API CALL NAHI
-      const clientId = 'b2cf4bfa369cac47083f664358d3accb'
-      const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
+      // ✅ Use server-generated OAuth URL
+      const response = await fetch('/api/upwork/auth')
+      const data = await response.json()
       
-      const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
-      
-      window.location.href = authUrl
-      
+      if (data.success && data.url) {
+        window.location.href = data.url
+      } else {
+        alert('Failed to generate OAuth URL')
+        setConnecting(false)
+      }
     } catch (error: any) {
       alert('Error: ' + error.message)
       setConnecting(false)
+    }
+  }
+
+  const handleDisconnectUpwork = async () => {
+    if (!confirm('Are you sure you want to disconnect Upwork?')) return
+    
+    try {
+      const response = await fetch('/api/upwork', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        setUpworkConnected(false)
+        alert('✅ Upwork disconnected successfully')
+        window.location.reload()
+      } else {
+        alert('Failed to disconnect: ' + (data.error || 'Unknown error'))
+      }
+    } catch (error: any) {
+      alert('Error: ' + error.message)
     }
   }
 
@@ -63,7 +108,7 @@ export default function Sidebar({
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <h1 className="text-xl font-bold text-white">UPDASH RESPONDER</h1>
-              <p className="text-gray-400 text-xs"> Upwork Assistant</p>
+              <p className="text-gray-400 text-xs">AI-Powered Upwork Assistant</p>
             </div>
           </div>
         </div>
@@ -90,21 +135,53 @@ export default function Sidebar({
             ))}
           </nav>
 
-          {/* Upwork Connection Card - SIMPLE */}
+          {/* Upwork Connection Card - DYNAMIC */}
           <div className="px-4 mt-6">
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
-              <p className="text-gray-300 text-sm mb-4">
-                Connect your Upwork account to access job data
-              </p>
+              <h3 className="text-lg font-semibold text-white mb-3">
+                {loadingConnection ? (
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Checking Connection...
+                  </div>
+                ) : upworkConnected ? '✅ Upwork Connected' : 'Upwork Connection'}
+              </h3>
               
-              <button 
-                onClick={handleConnectUpwork}
-                disabled={connecting}
-                className="w-full py-2 px-4 rounded-lg font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-              >
-                {connecting ? 'Connecting...' : '🔗 Connect Upwork'}
-              </button>
+              {loadingConnection ? (
+                <p className="text-gray-300 text-sm mb-4">Loading status...</p>
+              ) : upworkConnected ? (
+                <div>
+                  <p className="text-green-300 text-sm mb-4">
+                    Your Upwork account is connected. You can see real jobs and send proposals.
+                  </p>
+                  <button 
+                    onClick={handleDisconnectUpwork}
+                    className="w-full py-2 px-4 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  >
+                    🔗 Disconnect Upwork
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-gray-300 text-sm mb-4">
+                    Connect your Upwork account to access real jobs and send proposals.
+                  </p>
+                  <button 
+                    onClick={handleConnectUpwork}
+                    disabled={connecting}
+                    className="w-full py-2 px-4 rounded-lg font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                  >
+                    {connecting ? (
+                      <div className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Connecting...
+                      </div>
+                    ) : (
+                      '🔗 Connect Upwork'
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
