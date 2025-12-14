@@ -7,23 +7,21 @@ export const runtime = 'nodejs'
 
 export async function GET() {
   try {
-    // ✅ SUPER SIMPLE - NO ERROR THROWING
-    const result = await pool.query(
-      'SELECT id FROM upwork_accounts LIMIT 1'
-    )
+    // Simple check - if any Upwork account exists
+    const result = await pool.query('SELECT COUNT(*) as count FROM upwork_accounts')
+    const hasConnection = parseInt(result.rows[0].count) > 0
     
-    return NextResponse.json({
+    return NextResponse.json({ 
       success: true,
-      connected: result.rows.length > 0,
-      message: 'Status check successful'
+      connected: hasConnection,
+      message: hasConnection ? 'Upwork connected' : 'Not connected'
     })
-    
   } catch (error) {
-    // ✅ ERROR MEIN BHI SUCCESS RETURN KARO
-    return NextResponse.json({
-      success: true,
+    console.error('Status check error:', error)
+    return NextResponse.json({ 
+      success: false,
       connected: false,
-      message: 'Status check completed'
+      error: 'Database error'
     })
   }
 }
