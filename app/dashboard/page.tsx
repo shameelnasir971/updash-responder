@@ -3,255 +3,321 @@
 // app/dashboard/page.tsx 
 'use client'
 
-import { useRouter, usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import JobProposalPopup from '@/components/JobProposalPopup'
 
-interface SidebarProps {
-  sidebarOpen: boolean
-  setSidebarOpen: (open: boolean) => void
-  user: {
-    id: number
-    name: string
-    email: string
-    company_name: string
-  } | null
-  handleSignOut: () => void
+interface User {
+  id: number
+  name: string
+  email: string
+  company_name: string
 }
 
-export default function Sidebar({ 
-  sidebarOpen, 
-  setSidebarOpen, 
-  user, 
-  handleSignOut 
-}: SidebarProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  
-  // State Management
-  const [connecting, setConnecting] = useState(false)
+interface Job {
+  id: string
+  title: string
+  description: string
+  budget: string
+  postedDate: string
+  client: {
+    name: string
+    rating: number
+    country: string
+    totalSpent: number
+    totalHires: number
+  }
+  skills: string[]
+  proposals: number
+  verified: boolean
+  category?: string
+  duration?: string
+  source?: string
+  isRealJob?: boolean
+}
+
+export default function Dashboard() {
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobsLoading, setJobsLoading] = useState(false)
+  const [connectionError, setConnectionError] = useState('')
   const [upworkConnected, setUpworkConnected] = useState(false)
-  const [loadingConnection, setLoadingConnection] = useState(true)
-  const [errorMessage, setErrorMessage] = useState('')
+  const [connecting, setConnecting] = useState(false)
+  
+  // ✅ NEW: Popup state
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [showPopup, setShowPopup] = useState(false)
 
-  // ✅ FIXED: Navigation Items
-  const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: '📊' },
-    { name: 'History', href: '/dashboard/history', icon: '📝' },
-    { name: 'Prompts', href: '/dashboard/prompts', icon: '🤖' },
-    { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
-  ]
-
-  // ✅ FIXED: Check Upwork Connection Status
   useEffect(() => {
-    checkUpworkStatus()
+    checkAuth()
+    loadJobs()
   }, [])
 
-  const checkUpworkStatus = async () => {
-    setLoadingConnection(true)
-    
+  const checkAuth = async () => {
     try {
-      const response = await fetch('/api/upwork/status')
+      const response = await fetch('/api/auth')
       const data = await response.json()
       
-      if (response.ok && data.success) {
-        setUpworkConnected(data.connected || false)
+      if (data.authenticated && data.user) {
+        setUser(data.user)
       } else {
-        setUpworkConnected(false)
+        window.location.href = '/auth/login'
       }
     } catch (error) {
-      console.error('Status check error:', error)
-      setUpworkConnected(false)
+      window.location.href = '/auth/login'
     } finally {
-      setLoadingConnection(false)
+      setLoading(false)
     }
   }
 
-  // ✅ FIXED: Handle Connect Upwork
-  const handleConnectUpwork = async () => {
-    setConnecting(true)
-    setErrorMessage('')
+  const loadJobs = async () => {
+    setJobsLoading(true)
+    setConnectionError('')
     
     try {
-      // Direct OAuth URL (hardcoded for now)
-      const clientId = 'b2cf4bfa369cac47083f664358d3accb'
-      const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
+      console.log('🔄 Loading REAL jobs...')
+      const response = await fetch('/api/upwork/jobs')
       
-      const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
+      if (response.status === 401) {
+        setConnectionError('Session expired. Please login again.')
+        window.location.href = '/auth/login'
+        return
+      }
       
-      console.log('🔗 Redirecting to:', authUrl)
-      window.location.href = authUrl
+      const data = await response.json()
+      console.log('📊 Jobs Data:', {
+        success: data.success,
+        count: data.jobs?.length,
+        message: data.message
+      })
+
+      if (data.success) {
+        // ✅ REAL JOBS SET KARO - NO MOCK DATA
+        setJobs(data.jobs || [])
+        setUpworkConnected(data.upworkConnected || false)
+        
+        if (data.jobs?.length === 0) {
+          setConnectionError('No jobs found. Try refreshing.')
+        } else if (data.jobs?.length > 0) {
+          setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+        }
+      } else {
+        setConnectionError(data.message || 'Failed to load jobs')
+        setJobs([])
+      }
       
     } catch (error: any) {
-      console.error('Connection error:', error)
-      setErrorMessage('Failed to connect: ' + error.message)
+      console.error('❌ Load jobs error:', error)
+      setConnectionError('Network error. Please check connection.')
+      setJobs([])
+    } finally {
+      setJobsLoading(false)
+    }
+  }
+
+  const handleConnectUpwork = async () => {
+    setConnecting(true)
+    
+    try {
+      const response = await fetch('/api/upwork/auth')
+      const data = await response.json()
+      
+      if (data.success && data.url) {
+        window.location.href = data.url
+      } else {
+        alert('Failed to generate OAuth URL. Check console.')
+        console.error('OAuth error:', data.error)
+        setConnecting(false)
+      }
+    } catch (error: any) {
+      alert('Error: ' + error.message)
       setConnecting(false)
     }
   }
 
-  // ✅ FIXED: Handle Disconnect
-  const handleDisconnectUpwork = async () => {
-    if (!confirm('Disconnect Upwork?')) return
-    
-    try {
-      const response = await fetch('/api/upwork', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'disconnect' })
-      })
-      
-      if (response.ok) {
-        setUpworkConnected(false)
-        alert('✅ Upwork disconnected')
-        window.location.reload()
-      } else {
-        alert('Failed to disconnect')
-      }
-    } catch (error) {
-      console.error('Disconnect error:', error)
-    }
+  // ✅ NEW: Handle job click - open popup
+  const handleJobClick = (job: Job) => {
+    setSelectedJob(job)
+    setShowPopup(true)
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading Dashboard...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <>
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50
-        w-80 bg-gray-900 transform transition-transform duration-300 ease-in-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-        lg:translate-x-0 lg:static lg:inset-0
-        flex flex-col
-      `}>
+    <div className="min-h-screen bg-gray-50">
+      {/* ✅ Main Content */}
+      <div className="flex-1 p-6">
         {/* Header */}
-        <div className="flex-shrink-0 px-6 py-4 border-b border-gray-700">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <h1 className="text-xl font-bold text-white">UPDASH RESPONDER</h1>
-              <p className="text-gray-400 text-xs">AI Upwork Assistant</p>
+        <div className="mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Jobs Dashboard</h1>
+              <p className="text-sm text-gray-600">
+                {upworkConnected ? 'Real Upwork jobs from API' : 'Connect Upwork to see real jobs'}
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              {!upworkConnected && (
+                <button 
+                  onClick={handleConnectUpwork}
+                  disabled={connecting}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {connecting ? 'Connecting...' : '🔗 Connect Upwork'}
+                </button>
+              )}
+              <button 
+                onClick={loadJobs}
+                disabled={jobsLoading}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {jobsLoading ? 'Loading...' : '🔄 Refresh Jobs'}
+              </button>
             </div>
           </div>
         </div>
-        
-        {/* Navigation */}
-        <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
-          <nav className="flex-1 px-4 space-y-1">
-            {navigation.map((item) => (
-              <button
-                key={item.name}
-                onClick={() => {
-                  router.push(item.href)
-                  setSidebarOpen(false)
-                }}
-                className={`group w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-all ${
-                  pathname === item.href
-                    ? 'bg-blue-600 text-white shadow-lg' 
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+
+        {/* Error Message */}
+        {connectionError && (
+          <div className={`px-4 py-3 rounded-lg mb-6 ${
+            connectionError.includes('Success') 
+              ? 'bg-green-100 border border-green-400 text-green-700' 
+              : 'bg-yellow-100 border border-yellow-400 text-yellow-700'
+          }`}>
+            <div className="flex justify-between items-center">
+              <span>{connectionError}</span>
+              <button 
+                onClick={loadJobs}
+                className={`ml-4 text-sm px-3 py-1 rounded ${
+                  connectionError.includes('Success')
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-yellow-600 text-white hover:bg-yellow-700'
                 }`}
               >
-                <span className="text-lg mr-3">{item.icon}</span>
-                <span className="truncate">{item.name}</span>
+                Refresh
               </button>
-            ))}
-          </nav>
+            </div>
+          </div>
+        )}
 
-          {/* ✅ FIXED: Upwork Connection Card */}
-          <div className="px-4 mt-6">
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-3">
-                {loadingConnection ? (
-                  <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Checking...
-                  </div>
-                ) : upworkConnected ? '✅ Upwork Connected' : 'Upwork Connection'}
-              </h3>
-              
-              {upworkConnected ? (
-                <div>
-                  <p className="text-green-300 text-sm mb-4">
-                    Connected to Upwork API
-                  </p>
-                  <button 
-                    onClick={handleDisconnectUpwork}
-                    className="w-full py-2 px-4 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors"
-                  >
-                    Disconnect Upwork
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-gray-300 text-sm mb-4">
-                    Connect to fetch real Upwork jobs
-                  </p>
+        {/* Jobs List */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900">
+                {upworkConnected ? '📊 Real Upwork Jobs' : 'Connect Upwork Account'}
+              </h2>
+              <div className="text-sm text-gray-600">
+                {jobs.length} jobs available
+              </div>
+            </div>
+          </div>
+
+          <div className="divide-y divide-gray-200">
+            {jobsLoading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading real jobs from Upwork API...</p>
+              </div>
+            ) : jobs.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-gray-400 mb-4 text-6xl">💼</div>
+                <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                  {upworkConnected ? 'No Jobs Found' : 'Upwork Not Connected'}
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  {upworkConnected 
+                    ? 'Try refreshing or check Upwork directly.' 
+                    : 'Connect your Upwork account to see real jobs.'}
+                </p>
+                {!upworkConnected && (
                   <button 
                     onClick={handleConnectUpwork}
-                    disabled={connecting}
-                    className="w-full py-2 px-4 rounded-lg font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                    className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700"
                   >
-                    {connecting ? (
-                      <div className="flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Connecting...
-                      </div>
-                    ) : (
-                      '🔗 Connect Upwork'
-                    )}
+                    🔗 Connect Upwork Now
                   </button>
+                )}
+              </div>
+            ) : (
+              jobs.map((job) => (
+                <div 
+                  key={job.id} 
+                  className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() => handleJobClick(job)}
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="font-semibold text-gray-900 text-lg hover:text-blue-600">
+                      {job.title}
+                    </h3>
+                    <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
+                      {job.budget}
+                    </span>
+                  </div>
+                  
+                  <p className="text-gray-600 text-sm mb-3">
+                    <span className="font-medium">{job.client.name}</span> • 
+                    Posted: {job.postedDate} • 
+                    Location: {job.client.country} •
+                    Rating: {job.client.rating} ⭐ •
+                    Proposals: {job.proposals}
+                  </p>
+                  
+                  <p className="text-gray-700 mb-3">
+                    {job.description.substring(0, 250)}
+                    {job.description.length > 250 && '...'}
+                  </p>
+                  
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-2">
+                      {job.skills.slice(0, 3).map((skill, index) => (
+                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
+                          {skill}
+                        </span>
+                      ))}
+                      <span className="text-gray-500 text-sm">
+                        {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
+                      </span>
+                    </div>
+                    
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleJobClick(job)
+                      }}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                    >
+                      Generate Proposal
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* ✅ FIXED: User Info Section - SAFE */}
-        <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800 p-4">
-          {user ? (
-            <>
-              <div className="mb-4">
-                <div className="flex items-center space-x-3">
-                  {/* ✅ FIXED: Safe user.name access */}
-                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
-                    {user.name ? user.name.charAt(0).toUpperCase() : 'U'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">
-                      {user.name || 'User'}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {user.email || ''}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <button
-                onClick={handleSignOut}
-                className="w-full flex items-center px-4 py-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-              >
-                <span className="text-lg mr-3">🚪</span>
-                <span className="truncate">Sign Out</span>
-              </button>
-            </>
-          ) : (
-            <div className="text-center py-3">
-              <p className="text-gray-400 text-sm">Not logged in</p>
-              <button
-                onClick={() => router.push('/auth/login')}
-                className="mt-2 w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Login
-              </button>
-            </div>
-          )}
-        </div>
+        {/* ✅ NEW: Job Proposal Popup */}
+        {showPopup && selectedJob && user && (
+          <JobProposalPopup
+            job={selectedJob}
+            user={user}
+            onClose={() => {
+              setShowPopup(false)
+              setSelectedJob(null)
+            }}
+          />
+        )}
       </div>
-    </>
+    </div>
   )
 }
