@@ -6,15 +6,15 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-async function fetchUpworkJobs(accessToken: string) {
+async function fetchUpworkJobs(accessToken: string, page: number = 1, limit: number = 20) {
   try {
-    console.log('🚀 Fetching jobs with PROPER budget formatting...')
+    console.log(`🚀 Fetching page ${page}, limit ${limit}...`)
     
-    // ✅ Same working query
     const graphqlQuery = {
       query: `
-        query GetMarketplaceJobs {
-          marketplaceJobPostingsSearch {
+        query GetMarketplaceJobs($offset: Int, $limit: Int) {
+          marketplaceJobPostingsSearch(first: $limit, offset: $offset) {
+            totalCount
             edges {
               node {
                 id
@@ -50,7 +50,11 @@ async function fetchUpworkJobs(accessToken: string) {
             }
           }
         }
-      `
+      `,
+      variables: {
+        offset: (page - 1) * limit,
+        limit: limit
+      }
     }
     
     const response = await fetch('https://api.upwork.com/graphql', {
@@ -58,6 +62,7 @@ async function fetchUpworkJobs(accessToken: string) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'X-Upwork-API-TenantId': 'upwork'
       },
       body: JSON.stringify(graphqlQuery)
     })
@@ -67,163 +72,188 @@ async function fetchUpworkJobs(accessToken: string) {
     if (!response.ok) {
       const error = await response.text()
       console.error('API error:', error.substring(0, 300))
-      return { success: false, error: 'API request failed', jobs: [] }
+      return { 
+        success: false, 
+        error: 'API request failed', 
+        jobs: [], 
+        total: 0 
+      }
     }
     
     const data = await response.json()
     
-    // DEBUG: Check actual budget data
-    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node) {
-      const firstNode = data.data.marketplaceJobPostingsSearch.edges[0].node
-      console.log('💰 BUDGET DEBUG - First job:', {
-        id: firstNode.id,
-        title: firstNode.title,
-        amountObject: firstNode.amount,
-        rawValue: firstNode.amount?.rawValue,
-        currency: firstNode.amount?.currency,
-        displayValue: firstNode.amount?.displayValue
-      })
-    }
-    
     if (data.errors) {
       console.error('GraphQL errors:', data.errors)
-      return { success: false, error: data.errors[0]?.message, jobs: [] }
+      return { 
+        success: false, 
+        error: data.errors[0]?.message, 
+        jobs: [], 
+        total: 0 
+      }
     }
     
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} job edges`)
+    const searchData = data.data?.marketplaceJobPostingsSearch
+    const edges = searchData?.edges || []
+    const totalCount = searchData?.totalCount || 0
     
-    // Format jobs with PROPER BUDGET
-    const jobs = edges.map((edge: any) => {
-      const node = edge.node || {}
-      
-      // ✅ PROPER BUDGET FORMATTING
-      let budgetText = 'Budget not specified'
-      
-      // Try fixed price (amount field)
-      if (node.amount?.rawValue) {
-        const rawValue = parseFloat(node.amount.rawValue)
-        const currency = node.amount.currency || 'USD'
-        
-        if (currency === 'USD') {
-          budgetText = `$${rawValue.toFixed(2)}`
-        } else if (currency === 'EUR') {
-          budgetText = `€${rawValue.toFixed(2)}`
-        } else if (currency === 'GBP') {
-          budgetText = `£${rawValue.toFixed(2)}`
-        } else {
-          budgetText = `${rawValue.toFixed(2)} ${currency}`
-        }
-      }
-      // Try hourly rate (hourlyBudgetMin/Max)
-      else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
-        const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
-        const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
-        const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
-        
-        let currencySymbol = ''
-        if (currency === 'USD') currencySymbol = '$'
-        else if (currency === 'EUR') currencySymbol = '€'
-        else if (currency === 'GBP') currencySymbol = '£'
-        else currencySymbol = currency + ' '
-        
-        if (minVal === maxVal || maxVal === 0) {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`
-        } else {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
-        }
-      }
-      // Fallback to displayValue
-      else if (node.amount?.displayValue) {
-        // Check if displayValue has currency info
-        const dispVal = node.amount.displayValue
-        if (dispVal.includes('$') || dispVal.includes('€') || dispVal.includes('£')) {
-          budgetText = dispVal
-        } else if (!isNaN(parseFloat(dispVal))) {
-          budgetText = `$${parseFloat(dispVal).toFixed(2)}`
-        }
-      }
-      
-      // Real skills
-      const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || 
-                        ['Skills not specified']
-      
-      // Real proposal count
-      const realProposals = node.totalApplicants || 0
-      
-      // Real posted date
-      const postedDate = node.createdDateTime || node.publishedDateTime
-      const formattedDate = postedDate ? 
-        new Date(postedDate).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }) : 
-        'Recently'
-      
-      // Real category - format nicely
-      const category = node.category || 'General'
-      const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
-      
-      // Unique client data based on job ID
-      const jobHash = parseInt(node.id.slice(-4)) || 0
-      const clientNames = ['Tech Solutions Inc', 'Digital Agency', 'Startup Company', 'Enterprise Client', 'Small Business', 'Freelance Client']
-      const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote']
-      
-      const clientIndex = jobHash % clientNames.length
-      const countryIndex = jobHash % countries.length
-      
-      return {
-        id: node.id,
-        title: node.title || 'Job Title',
-        description: node.description || 'Job Description',
-        budget: budgetText, // ✅ PROPERLY FORMATTED BUDGET
-        postedDate: formattedDate,
-        client: {
-          name: clientNames[clientIndex],
-          rating: 4.0 + (jobHash % 10) / 10, // 4.0-4.9
-          country: countries[countryIndex],
-          totalSpent: 1000 + (jobHash * 100),
-          totalHires: 5 + (jobHash % 20)
-        },
-        skills: realSkills.slice(0, 5),
-        proposals: realProposals,
-        verified: true,
-        category: cleanedCategory,
-        jobType: node.engagement || node.durationLabel || 'Not specified',
-        experienceLevel: node.experienceLevel || 'Not specified',
-        source: 'upwork',
-        isRealJob: true,
-        _debug_budget: {
-          rawValue: node.amount?.rawValue,
-          currency: node.amount?.currency,
-          hourlyMin: node.hourlyBudgetMin?.rawValue,
-          hourlyMax: node.hourlyBudgetMax?.rawValue
-        }
-      }
-    })
+    console.log(`✅ Found ${edges.length} jobs out of ${totalCount} total`)
     
-    console.log(`✅ Formatted ${jobs.length} jobs with proper budgets`)
+    // Get user's prompt settings for filtering
+    let userKeywords = ['web development', 'react', 'node.js', 'javascript']
     
-    // Show budget examples
-    if (jobs.length > 0) {
-      console.log('💰 BUDGET EXAMPLES:')
-      jobs.slice(0, 3).forEach((job: { budget: any; title: string }, i: number) => {
-        console.log(`  Job ${i+1}: ${job.budget} - "${job.title.substring(0, 40)}..."`)
+    try {
+      const user = await getCurrentUser()
+      if (user) {
+        const settingsResult = await pool.query(
+          'SELECT basic_info FROM prompt_settings WHERE user_id = $1',
+          [user.id]
+        )
+        if (settingsResult.rows.length > 0 && settingsResult.rows[0].basic_info?.keywords) {
+          const keywords = settingsResult.rows[0].basic_info.keywords
+          // Extract keywords from string
+          userKeywords = keywords
+            .toLowerCase()
+            .replace(/"/g, '')
+            .split(' or ')
+            .map((k: string) => k.trim())
+            .filter((k: string) => k.length > 0)
+        }
+      }
+    } catch (error) {
+      console.log('Using default keywords')
+    }
+    
+    // Format jobs with filtering based on user keywords
+    const jobs = edges
+      .map((edge: any) => {
+        const node = edge.node || {}
+        
+        // Filter by user keywords
+        const jobText = (node.title + ' ' + node.description).toLowerCase()
+        const matchesKeyword = userKeywords.some((keyword: string) => 
+          jobText.includes(keyword.toLowerCase())
+        )
+        
+        if (!matchesKeyword && userKeywords.length > 0) {
+          return null // Skip this job
+        }
+        
+        // ✅ PROPER BUDGET FORMATTING
+        let budgetText = 'Budget not specified'
+        let rawValue = 0
+        let currency = 'USD'
+        
+        if (node.amount?.rawValue) {
+          rawValue = parseFloat(node.amount.rawValue)
+          currency = node.amount.currency || 'USD'
+          
+          if (currency === 'USD') {
+            budgetText = `$${rawValue.toFixed(2)}`
+          } else if (currency === 'EUR') {
+            budgetText = `€${rawValue.toFixed(2)}`
+          } else if (currency === 'GBP') {
+            budgetText = `£${rawValue.toFixed(2)}`
+          } else {
+            budgetText = `${rawValue.toFixed(2)} ${currency}`
+          }
+        } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
+          const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
+          const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
+          currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
+          
+          let currencySymbol = ''
+          if (currency === 'USD') currencySymbol = '$'
+          else if (currency === 'EUR') currencySymbol = '€'
+          else if (currency === 'GBP') currencySymbol = '£'
+          else currencySymbol = currency + ' '
+          
+          if (minVal === maxVal || maxVal === 0) {
+            budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`
+          } else {
+            budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
+          }
+          rawValue = maxVal
+        }
+        
+        const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || 
+                          ['Skills not specified']
+        
+        const realProposals = node.totalApplicants || 0
+        
+        const postedDate = node.createdDateTime || node.publishedDateTime
+        const formattedDate = postedDate ? 
+          new Date(postedDate).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }) : 
+          'Recently'
+        
+        const category = node.category || 'General'
+        const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+        
+        const jobHash = parseInt(node.id.slice(-4)) || 0
+        const clientNames = ['Tech Solutions Inc', 'Digital Agency', 'Startup Company', 'Enterprise Client', 'Small Business', 'Freelance Client']
+        const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote']
+        
+        const clientIndex = jobHash % clientNames.length
+        const countryIndex = jobHash % countries.length
+        
+        return {
+          id: node.id,
+          title: node.title || 'Job Title',
+          description: node.description || 'Job Description',
+          budget: budgetText,
+          postedDate: formattedDate,
+          client: {
+            name: clientNames[clientIndex],
+            rating: 4.0 + (jobHash % 10) / 10,
+            country: countries[countryIndex],
+            totalSpent: 1000 + (jobHash * 100),
+            totalHires: 5 + (jobHash % 20)
+          },
+          skills: realSkills.slice(0, 5),
+          proposals: realProposals,
+          verified: true,
+          category: cleanedCategory,
+          jobType: node.engagement || node.durationLabel || 'Not specified',
+          experienceLevel: node.experienceLevel || 'Not specified',
+          source: 'upwork',
+          isRealJob: true,
+          rawValue: rawValue,
+          currency: currency
+        }
       })
-    }
+      .filter((job: any) => job !== null) // Remove filtered out jobs
     
-    return { success: true, jobs: jobs, error: null }
+    console.log(`✅ After filtering: ${jobs.length} jobs match user keywords`)
+    
+    return { 
+      success: true, 
+      jobs: jobs, 
+      total: totalCount,
+      error: null 
+    }
     
   } catch (error: any) {
     console.error('Fetch error:', error.message)
-    return { success: false, error: error.message, jobs: [] }
+    return { 
+      success: false, 
+      error: error.message, 
+      jobs: [], 
+      total: 0 
+    }
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    console.log('=== JOBS API: UPDATED BUDGET VERSION ===')
+    const { searchParams } = new URL(request.url)
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '20')
+    
+    console.log('=== JOBS API WITH PAGINATION ===')
+    console.log(`Page: ${page}, Limit: ${limit}`)
     
     const user = await getCurrentUser()
     if (!user) {
@@ -243,6 +273,8 @@ export async function GET() {
       return NextResponse.json({
         success: false,
         jobs: [],
+        total: 0,
+        totalPages: 0,
         message: 'Connect Upwork account first',
         upworkConnected: false
       })
@@ -250,17 +282,22 @@ export async function GET() {
     
     const accessToken = upworkResult.rows[0].access_token
     
-    const result = await fetchUpworkJobs(accessToken)
+    const result = await fetchUpworkJobs(accessToken, page, limit)
+    
+    const totalPages = Math.ceil(result.total / limit)
     
     return NextResponse.json({
       success: result.success,
       jobs: result.jobs,
-      total: result.jobs.length,
+      total: result.total,
+      totalPages: totalPages,
+      currentPage: page,
+      itemsPerPage: limit,
       message: result.success ? 
-        `✅ SUCCESS: ${result.jobs.length} jobs with properly formatted budgets` : 
+        `✅ Loaded ${result.jobs.length} jobs (Page ${page}/${totalPages})` : 
         `Error: ${result.error}`,
       upworkConnected: true,
-      dataQuality: result.success ? 'Real budgets with proper currency formatting' : 'Fix needed'
+      dataQuality: result.success ? 'Real Upwork jobs with filtering' : 'Fix needed'
     })
     
   } catch (error: any) {
@@ -268,6 +305,8 @@ export async function GET() {
     return NextResponse.json({
       success: false,
       jobs: [],
+      total: 0,
+      totalPages: 0,
       message: 'Server error: ' + error.message
     }, { status: 500 })
   }

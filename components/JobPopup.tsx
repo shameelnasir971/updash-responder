@@ -1,31 +1,59 @@
 //components/JobPopup/JobPopup.tsx
-
-
 'use client'
 
-import { useState, useEffect } from 'react'
-// import { XMarkIcon } from '@heroicons/react/24/outline'
+import { useState } from 'react'
 
-interface JobPopupProps {
-  job: any
-  isOpen: boolean
-  onClose: () => void
-  onProposalGenerated: (proposal: string) => void
+interface Job {
+  id: string
+  title: string
+  description: string
+  budget: string
+  postedDate: string
+  client: {
+    name: string
+    rating: number
+    country: string
+    totalSpent: number
+    totalHires: number
+  }
+  skills: string[]
+  proposals: number
 }
 
-export default function JobPopup({ job, isOpen, onClose, onProposalGenerated }: JobPopupProps) {
+interface User {
+  id: number
+  name: string
+  email: string
+  company_name: string
+}
+
+interface JobPopupProps {
+  job: Job
+  user: User | null
+  onClose: () => void
+  onSaveSuccess: () => void
+}
+
+export default function JobPopup({ job, user, onClose, onSaveSuccess }: JobPopupProps) {
   const [proposal, setProposal] = useState('')
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
-  const [editMode, setEditMode] = useState(false)
-  const [originalProposal, setOriginalProposal] = useState('')
-  const [showSuccess, setShowSuccess] = useState('')
-
-  if (!isOpen || !job) return null
+  const [editing, setEditing] = useState(false)
+  const [generated, setGenerated] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   const generateProposal = async () => {
+    if (!user) {
+      setError('Please login first')
+      return
+    }
+
     setGenerating(true)
+    setError('')
+    setSuccess('')
+
     try {
       const response = await fetch('/api/proposals/generate', {
         method: 'POST',
@@ -41,24 +69,30 @@ export default function JobPopup({ job, isOpen, onClose, onProposalGenerated }: 
       })
 
       const data = await response.json()
-      
-      if (data.success) {
+
+      if (response.ok && data.success) {
         setProposal(data.proposal)
-        setOriginalProposal(data.proposal)
-        setEditMode(false)
-        onProposalGenerated(data.proposal)
+        setGenerated(true)
+        setSuccess('✅ Proposal generated successfully!')
       } else {
-        alert('Failed to generate proposal: ' + data.error)
+        setError(data.error || 'Failed to generate proposal')
       }
     } catch (error: any) {
-      alert('Error: ' + error.message)
+      setError('Network error: ' + error.message)
     } finally {
       setGenerating(false)
     }
   }
 
   const saveProposal = async () => {
+    if (!proposal.trim()) {
+      setError('Proposal cannot be empty')
+      return
+    }
+
     setSaving(true)
+    setError('')
+
     try {
       const response = await fetch('/api/proposals/save', {
         method: 'POST',
@@ -76,24 +110,31 @@ export default function JobPopup({ job, isOpen, onClose, onProposalGenerated }: 
       })
 
       const data = await response.json()
-      
-      if (data.success) {
-        setShowSuccess('✅ Proposal saved to history!')
-        setTimeout(() => setShowSuccess(''), 3000)
+
+      if (response.ok && data.success) {
+        setSuccess('✅ Proposal saved to history!')
+        setGenerated(false)
+        setEditing(false)
+        onSaveSuccess()
       } else {
-        alert('Failed to save: ' + data.error)
+        setError(data.error || 'Failed to save proposal')
       }
     } catch (error: any) {
-      alert('Error: ' + error.message)
+      setError('Network error: ' + error.message)
     } finally {
       setSaving(false)
     }
   }
 
   const sendProposal = async () => {
-    if (!confirm('Send this proposal to Upwork?')) return
-    
+    if (!proposal.trim()) {
+      setError('Proposal cannot be empty')
+      return
+    }
+
     setSending(true)
+    setError('')
+
     try {
       const response = await fetch('/api/proposals/send', {
         method: 'POST',
@@ -102,196 +143,199 @@ export default function JobPopup({ job, isOpen, onClose, onProposalGenerated }: 
           jobId: job.id,
           jobTitle: job.title,
           proposalText: proposal,
-          originalProposal: originalProposal,
-          editReason: editMode ? 'User edited' : 'AI generated'
+          originalProposal: proposal
         })
       })
 
       const data = await response.json()
-      
-      if (data.success) {
-        setShowSuccess('✅ Proposal sent to Upwork and saved!')
-        setTimeout(() => {
-          setShowSuccess('')
-          onClose()
-        }, 3000)
+
+      if (response.ok && data.success) {
+        setSuccess(data.message || '✅ Proposal sent successfully!')
+        setGenerated(false)
+        setEditing(false)
+        onSaveSuccess()
       } else {
-        alert('Failed to send: ' + data.error)
+        setError(data.error || 'Failed to send proposal')
       }
     } catch (error: any) {
-      alert('Error: ' + error.message)
+      setError('Network error: ' + error.message)
     } finally {
       setSending(false)
     }
   }
 
-  const enableEdit = () => {
-    setEditMode(true)
-  }
-
-  const cancelEdit = () => {
-    setProposal(originalProposal)
-    setEditMode(false)
-  }
-
-  const saveEdit = () => {
-    setOriginalProposal(proposal)
-    setEditMode(false)
-    setShowSuccess('✅ Changes saved!')
-    setTimeout(() => setShowSuccess(''), 2000)
-  }
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50" onClick={onClose}></div>
-
-      {/* Popup */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white shadow-xl">
-        <div className="h-full flex flex-col">
-          {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">{job.title}</h2>
-              <div className="flex items-center space-x-2 mt-1">
-                <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
-                  {job.budget}
-                </span>
-                <span className="text-sm text-gray-600">
-                  {job.client?.name} • {job.postedDate}
-                </span>
-              </div>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">{job.title}</h2>
+            <div className="flex flex-wrap gap-2 text-sm text-gray-600">
+              <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
+                {job.budget}
+              </span>
+              <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full">
+                ⭐ {job.client.rating}
+              </span>
+              <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full">
+                👤 {job.client.name}
+              </span>
+              <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full">
+                📅 {job.postedDate}
+              </span>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 text-gray-400 hover:text-gray-500"
-            >
-              {/* <XMarkIcon className="h-6 w-6" /> */}
-            </button>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+          {/* Job Details */}
+          <div className="mb-6">
+            <h3 className="font-semibold text-gray-900 mb-2">Job Description</h3>
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <p className="text-gray-700 whitespace-pre-wrap">{job.description}</p>
+            </div>
           </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {/* Success Message */}
-            {showSuccess && (
-              <div className="mb-4 p-3 bg-green-100 text-green-800 rounded-lg">
-                {showSuccess}
+          {/* Skills */}
+          {job.skills && job.skills.length > 0 && (
+            <div className="mb-6">
+              <h3 className="font-semibold text-gray-900 mb-2">Required Skills</h3>
+              <div className="flex flex-wrap gap-2">
+                {job.skills.map((skill, index) => (
+                  <span key={index} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-lg text-sm">
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Client Info */}
+          <div className="mb-6">
+            <h3 className="font-semibold text-gray-900 mb-2">Client Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="text-sm text-gray-600">Total Spent</div>
+                <div className="font-semibold text-green-700">${job.client.totalSpent}</div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="text-sm text-gray-600">Total Hires</div>
+                <div className="font-semibold text-blue-700">{job.client.totalHires}</div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="text-sm text-gray-600">Country</div>
+                <div className="font-semibold text-purple-700">{job.client.country}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Proposal Section */}
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-900">Proposal</h3>
+              {generated && !editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  ✏️ Edit Proposal
+                </button>
+              )}
+            </div>
+
+            {error && (
+              <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+                {error}
               </div>
             )}
 
-            {/* Job Details */}
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-900 mb-2">Job Description</h3>
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-gray-700 whitespace-pre-wrap">{job.description}</p>
+            {success && (
+              <div className="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg">
+                {success}
               </div>
-            </div>
+            )}
 
-            {/* Job Info Grid */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <div className="text-sm text-gray-600">Client</div>
-                <div className="font-medium">{job.client?.name}</div>
-                <div className="text-sm text-gray-500">
-                  Rating: {job.client?.rating} ⭐ • {job.client?.country}
-                </div>
-              </div>
-              
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <div className="text-sm text-gray-600">Skills Required</div>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {job.skills?.slice(0, 5).map((skill: string, idx: number) => (
-                    <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Proposal Section */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">Proposal</h3>
-                {proposal && !editMode && (
-                  <button
-                    onClick={enableEdit}
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    ✏️ Edit Proposal
-                  </button>
-                )}
-              </div>
-
-              {proposal ? (
-                <div>
-                  <textarea
-                    value={proposal}
-                    onChange={(e) => setProposal(e.target.value)}
-                    rows={12}
-                    readOnly={!editMode}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      editMode 
-                        ? 'border-blue-300 bg-white' 
-                        : 'border-gray-300 bg-gray-50'
-                    }`}
-                  />
-                  
-                  {editMode && (
-                    <div className="flex gap-2 mt-3">
+            {proposal ? (
+              <div>
+                <textarea
+                  value={proposal}
+                  onChange={(e) => setProposal(e.target.value)}
+                  readOnly={!editing}
+                  rows={8}
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    editing ? 'border-blue-300 bg-white' : 'border-gray-300 bg-gray-50'
+                  }`}
+                />
+                <div className="mt-4 flex gap-3">
+                  {!generated ? (
+                    <button
+                      onClick={generateProposal}
+                      disabled={generating}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold"
+                    >
+                      {generating ? (
+                        <span className="flex items-center">
+                          <svg className="animate-spin h-4 w-4 mr-2 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Generating...
+                        </span>
+                      ) : (
+                        '🤖 Generate Proposal'
+                      )}
+                    </button>
+                  ) : (
+                    <>
                       <button
-                        onClick={saveEdit}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                        onClick={saveProposal}
+                        disabled={saving}
+                        className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 font-semibold"
                       >
-                        Save Changes
+                        {saving ? 'Saving...' : '💾 Save to History'}
                       </button>
                       <button
-                        onClick={cancelEdit}
-                        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                        onClick={sendProposal}
+                        disabled={sending}
+                        className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold"
                       >
-                        Cancel
+                        {sending ? 'Sending...' : '📤 Send to Upwork'}
                       </button>
-                    </div>
+                      {editing && (
+                        <button
+                          onClick={() => setEditing(false)}
+                          className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 font-semibold"
+                        >
+                          Cancel Edit
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
-              ) : (
-                <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                  <div className="text-gray-400 text-4xl mb-3">📝</div>
-                  <p className="text-gray-600">No proposal generated yet</p>
-                  <button
-                    onClick={generateProposal}
-                    disabled={generating}
-                    className="mt-4 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {generating ? 'Generating...' : 'Generate Professional Proposal'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Footer Actions */}
-          <div className="border-t border-gray-200 p-6 bg-gray-50">
-            {showSuccess ? (
-              <div className="text-center text-green-600 font-medium">
-                {showSuccess}
               </div>
             ) : (
-              <div className="flex gap-3">
+              <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                <div className="text-5xl mb-4">🤖</div>
+                <h4 className="text-lg font-semibold text-gray-700 mb-2">Generate Proposal</h4>
+                <p className="text-gray-600 mb-6">
+                  AI will create a professional proposal based on this job and your profile
+                </p>
                 <button
-                  onClick={saveProposal}
-                  disabled={!proposal || saving}
-                  className="flex-1 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                  onClick={generateProposal}
+                  disabled={generating}
+                  className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold text-lg"
                 >
-                  {saving ? 'Saving...' : '💾 Save to History'}
-                </button>
-                
-                <button
-                  onClick={sendProposal}
-                  disabled={!proposal || sending}
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                >
-                  {sending ? 'Sending...' : '🚀 Send to Upwork'}
+                  {generating ? 'Generating...' : 'Generate Proposal with AI'}
                 </button>
               </div>
             )}

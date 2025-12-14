@@ -1,6 +1,5 @@
 //app/api/upwork/disconnect/route.ts
 
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -15,20 +14,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    // Mark as disconnected (don't delete, just mark)
+    // Delete the Upwork connection
     await pool.query(
-      `UPDATE upwork_accounts 
-       SET connection_status = 'disconnected', 
-           disconnected_at = NOW()
-       WHERE user_id = $1`,
+      'DELETE FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
 
     return NextResponse.json({ 
       success: true,
-      message: 'Upwork disconnected successfully. You can reconnect anytime.'
+      message: 'Upwork account disconnected successfully. You can reconnect anytime.'
     })
-    
   } catch (error: any) {
     console.error('Disconnect error:', error)
     return NextResponse.json({ 
