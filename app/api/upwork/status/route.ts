@@ -1,29 +1,38 @@
 // app/api/upwork/status/route.ts 
 import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // ✅ SUPER SIMPLE - NO ERROR THROWING
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json({ 
+        connected: false,
+        message: 'Not authenticated'
+      }, { status: 200 })
+    }
+
     const result = await pool.query(
-      'SELECT id FROM upwork_accounts LIMIT 1'
+      `SELECT id, connection_status, created_at 
+       FROM upwork_accounts 
+       WHERE user_id = $1 AND connection_status = 'connected'`,
+      [user.id]
     )
     
     return NextResponse.json({
-      success: true,
       connected: result.rows.length > 0,
-      message: 'Status check successful'
+      connectionStatus: result.rows[0]?.connection_status || 'disconnected',
+      message: result.rows.length > 0 ? 'Upwork connected' : 'Not connected'
     })
     
   } catch (error) {
-    // ✅ ERROR MEIN BHI SUCCESS RETURN KARO
     return NextResponse.json({
-      success: true,
       connected: false,
-      message: 'Status check completed'
-    })
+      message: 'Status check failed'
+    }, { status: 200 })
   }
 }

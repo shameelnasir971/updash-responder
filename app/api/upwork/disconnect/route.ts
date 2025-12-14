@@ -1,7 +1,6 @@
 //app/api/upwork/disconnect/route.ts
 
 
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -16,32 +15,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    console.log(`🔄 Disconnecting Upwork for user: ${user.id} (${user.email})`)
-
-    // Delete Upwork account connection
-    const result = await pool.query(
-      'DELETE FROM upwork_accounts WHERE user_id = $1 RETURNING id',
+    // Mark as disconnected (don't delete, just mark)
+    await pool.query(
+      `UPDATE upwork_accounts 
+       SET connection_status = 'disconnected', 
+           disconnected_at = NOW()
+       WHERE user_id = $1`,
       [user.id]
     )
 
-    if (result.rowCount && result.rowCount > 0) {
-      console.log(`✅ Upwork disconnected for user: ${user.email}`)
-      return NextResponse.json({ 
-        success: true,
-        message: 'Upwork account disconnected successfully. You can reconnect anytime.'
-      })
-    } else {
-      return NextResponse.json({ 
-        success: false,
-        error: 'No Upwork connection found to disconnect'
-      }, { status: 404 })
-    }
-
+    return NextResponse.json({ 
+      success: true,
+      message: 'Upwork disconnected successfully. You can reconnect anytime.'
+    })
+    
   } catch (error: any) {
-    console.error('❌ Disconnect error:', error)
+    console.error('Disconnect error:', error)
     return NextResponse.json({ 
       success: false,
-      error: 'Failed to disconnect Upwork: ' + error.message
+      error: 'Failed to disconnect: ' + error.message 
     }, { status: 500 })
   }
 }
