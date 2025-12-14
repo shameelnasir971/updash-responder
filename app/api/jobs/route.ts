@@ -66,17 +66,17 @@ async function fetchSimpleUpworkJobs(accessToken: string) {
           verified: true,
           category: 'Web Development'
         },
-        {
-          id: 'upwork_2',
-          title: 'Full Stack Developer',
-          description: 'Need full stack developer for SaaS application',
-          budget: { amount: 1000, currency: 'USD' },
-          client: { name: 'Startup Inc', rating: 4.8, country: 'Remote' },
-          skills: ['Node.js', 'React', 'MongoDB'],
-          proposals: 3,
-          verified: true,
-          category: 'Web Development'
-        }
+        // {
+        //   id: 'upwork_2',
+        //   title: 'Full Stack Developer',
+        //   description: 'Need full stack developer for SaaS application',
+        //   budget: { amount: 1000, currency: 'USD' },
+        //   client: { name: 'Startup Inc', rating: 4.8, country: 'Remote' },
+        //   skills: ['Node.js', 'React', 'MongoDB'],
+        //   proposals: 3,
+        //   verified: true,
+        //   category: 'Web Development'
+        // }
       ]
     }
     
