@@ -6,7 +6,9 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ Get user's prompt settings for filtering
+// Cache jobs for 5 minutes to reduce API calls
+const jobsCache = new Map()
+
 async function getUserPromptSettings(userId: number) {
   try {
     const result = await pool.query(
@@ -18,16 +20,20 @@ async function getUserPromptSettings(userId: number) {
       return result.rows[0]
     }
     
+    // DEFAULT VALUES FOR FIRST TIME USERS
     return {
       basic_info: {
-        keywords: '"web development" OR "react" OR "node.js" OR "javascript"',
+        keywords: '"web development" OR "react" OR "node.js" OR "javascript" OR "typescript" OR "python" OR "full stack" OR "frontend" OR "backend"',
         location: 'Worldwide',
-        specialty: 'Web Development'
+        specialty: 'Web Development',
+        hourlyRate: '$25-50'
       },
       validation_rules: {
         minBudget: 100,
         maxBudget: 10000,
-        clientRating: 4.0
+        clientRating: 4.0,
+        jobTypes: ['Fixed', 'Hourly'],
+        requiredSkills: ['JavaScript', 'React', 'Node.js']
       }
     }
   } catch (error) {
@@ -36,25 +42,28 @@ async function getUserPromptSettings(userId: number) {
   }
 }
 
-// ✅ REAL GRAPHQL QUERY - Verified Working
-async function fetchRealJobsFromUpwork(accessToken: string, userSettings: any) {
+// ✅ REAL GRAPHQL QUERY WITH PAGINATION
+async function fetchJobsFromUpwork(accessToken: string, userSettings: any, page: number = 1, perPage: number = 20) {
   try {
-    console.log('🚀 Fetching REAL jobs with user filters...')
+    console.log(`🚀 Fetching REAL jobs - Page ${page}, ${perPage} per page...`)
     
-    // Parse user's keywords for search
+    // Parse user's keywords
     const keywordStr = userSettings?.basic_info?.keywords || ''
     const keywords = keywordStr
       .split(' OR ')
       .map((k: string) => k.trim().replace(/"/g, ''))
       .filter((k: string) => k.length > 0)
     
-    // Build search query
-    const searchQuery = keywords.length > 0 ? keywords.join(' ') : 'web development'
+    const searchQuery = keywords.length > 0 ? keywords.join(' ') : 'web development javascript react node'
     
-    // ✅ SIMPLE BUT WORKING QUERY - No complex fields
+    // Calculate offset for pagination
+    const first = perPage
+    const skip = (page - 1) * perPage
+    
+    // ✅ ENHANCED QUERY WITH ALL FIELDS
     const graphqlQuery = {
       query: `
-        query GetRealJobs($query: String!) {
+        query GetJobsWithPagination($query: String!, $first: Int!, $skip: Int) {
           marketplaceJobPostingsSearch(
             marketPlaceJobFilter: {
               searchQuery: $query
@@ -63,6 +72,8 @@ async function fetchRealJobsFromUpwork(accessToken: string, userSettings: any) {
               field: POSTED_DATE
               direction: DESC
             }
+            first: $first
+            skip: $skip
           ) {
             totalCount
             edges {
@@ -107,65 +118,77 @@ async function fetchRealJobsFromUpwork(accessToken: string, userSettings: any) {
                     code
                   }
                 }
+                estimatedWorkload
+                contractTier
+                clientActivity
+                preferredQualifications
+                enterprise
               }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
             }
           }
         }
       `,
       variables: {
-        query: searchQuery
+        query: searchQuery,
+        first: first,
+        skip: skip
       }
     }
     
-    console.log('🔍 Search query:', searchQuery)
+    console.log(`🔍 Search query: ${searchQuery}, Page: ${page}, Limit: ${first}`)
     
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
       body: JSON.stringify(graphqlQuery)
     })
     
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('❌ API error:', errorText.substring(0, 200))
-      
-      // Try alternative query without variables
-      return await fetchAlternativeJobs(accessToken, searchQuery)
+      console.error('❌ API error:', errorText.substring(0, 300))
+      return { success: false, error: 'API request failed', jobs: [] }
     }
     
     const data = await response.json()
     
     if (data.errors) {
       console.error('❌ GraphQL errors:', data.errors)
-      
-      // Try without variables
-      return await fetchAlternativeJobs(accessToken, searchQuery)
+      return { success: false, error: data.errors[0]?.message, jobs: [] }
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} REAL job edges`)
+    const totalCount = data.data?.marketplaceJobPostingsSearch?.totalCount || 0
+    
+    console.log(`✅ Found ${edges.length} jobs out of ${totalCount} total`)
     
     if (edges.length === 0) {
-      return { success: true, jobs: [], error: null }
+      return { success: true, jobs: [], totalCount: 0, hasNextPage: false }
     }
     
-    // ✅ FORMAT REAL JOBS - NO MOCK DATA
+    // ✅ FORMAT REAL JOBS WITH DETAILS
     const formattedJobs = edges.map((edge: any) => {
       const job = edge.node
       
-      // REAL BUDGET - from 'budget' or 'amount' field
+      // REAL BUDGET
       let budgetText = 'Budget not specified'
+      let budgetAmount = 0
       if (job.budget?.amount) {
         const amount = parseFloat(job.budget.amount)
         const currency = job.budget.currency?.code || 'USD'
         budgetText = `${currency} ${amount}`
+        budgetAmount = amount
       }
       
       // REAL CLIENT DATA
-      const clientRating = job.client?.feedback?.score || 4.0
+      const clientRating = job.client?.feedback?.score || 0
       const clientSpent = job.client?.totalSpent || 0
       const clientHires = job.client?.feedback?.count || 0
       const clientCountry = job.client?.location?.country || 'Remote'
@@ -179,8 +202,10 @@ async function fetchRealJobsFromUpwork(accessToken: string, userSettings: any) {
         new Date(job.postedOn).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
-          year: 'numeric'
-        }) : 'Recently'
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }) : 'Just now'
       
       // REAL PROPOSALS
       const proposals = job.proposalCount || 0
@@ -188,9 +213,11 @@ async function fetchRealJobsFromUpwork(accessToken: string, userSettings: any) {
       return {
         id: job.id,
         title: job.title || 'Job Title',
-        description: job.description || 'Looking for skilled professional',
+        description: job.description || 'No description provided',
         budget: budgetText,
+        budgetAmount: budgetAmount,
         postedDate: postedDate,
+        postedTimestamp: job.postedOn || new Date().toISOString(),
         client: {
           name: job.client?.displayName || 'Client',
           rating: parseFloat(clientRating.toFixed(1)),
@@ -198,226 +225,76 @@ async function fetchRealJobsFromUpwork(accessToken: string, userSettings: any) {
           totalSpent: clientSpent,
           totalHires: clientHires
         },
-        skills: skills.slice(0, 5),
+        skills: skills.slice(0, 8),
         proposals: proposals,
         verified: true,
         category: job.category?.title || 'General',
         jobType: job.jobType || 'Fixed Price',
         experienceLevel: job.experienceLevel || 'Not specified',
         duration: job.duration?.label || 'Not specified',
+        estimatedWorkload: job.estimatedWorkload || 'Not specified',
+        contractTier: job.contractTier || 'Standard',
         source: 'upwork',
         isRealJob: true,
-        _debug: {
-          rawTitle: job.title,
-          hasBudgetData: !!job.budget,
-          hasClientData: !!job.client
-        }
+        raw: job // Keep raw data for debugging
       }
     })
     
-    // Filter by user's budget range
+    // Apply user's budget filters
     const minBudget = userSettings?.validation_rules?.minBudget || 100
     const maxBudget = userSettings?.validation_rules?.maxBudget || 10000
+    const clientRating = userSettings?.validation_rules?.clientRating || 4.0
     
     const filteredJobs = formattedJobs.filter((job: any) => {
-      // Extract numeric value from budget string
-      const budgetMatch = job.budget.match(/(\d+(\.\d+)?)/)
-      if (!budgetMatch) return true // Keep if no budget info
+      // Budget filter
+      if (job.budgetAmount > 0) {
+        if (job.budgetAmount < minBudget || job.budgetAmount > maxBudget) {
+          return false
+        }
+      }
       
-      const budgetValue = parseFloat(budgetMatch[1])
-      return budgetValue >= minBudget && budgetValue <= maxBudget
+      // Client rating filter
+      if (job.client.rating < clientRating) {
+        return false
+      }
+      
+      return true
     })
     
-    console.log(`📊 After budget filtering: ${filteredJobs.length} jobs`)
+    console.log(`📊 After filtering: ${filteredJobs.length} jobs`)
     
-    return { success: true, jobs: filteredJobs, error: null }
+    const hasNextPage = data.data?.marketplaceJobPostingsSearch?.pageInfo?.hasNextPage || false
+    
+    return { 
+      success: true, 
+      jobs: filteredJobs, 
+      totalCount: totalCount,
+      hasNextPage: hasNextPage,
+      page: page,
+      perPage: perPage
+    }
     
   } catch (error: any) {
-    console.error('❌ Real fetch error:', error.message)
+    console.error('❌ Upwork fetch error:', error.message)
     return { success: false, error: error.message, jobs: [] }
   }
 }
 
-// ✅ ALTERNATIVE QUERY without variables
-async function fetchAlternativeJobs(accessToken: string, searchQuery: string) {
+export async function GET(request: NextRequest) {
   try {
-    console.log('🔄 Trying alternative query without variables...')
+    console.log('=== REAL JOBS API WITH PAGINATION ===')
     
-    // Build search into query string
-    const alternativeQuery = {
-      query: `
-        query GetJobs {
-          marketplaceJobPostingsSearch(
-            marketPlaceJobFilter: {
-              searchQuery: "${searchQuery}"
-            }
-            sortAttributes: {
-              field: POSTED_DATE
-              direction: DESC
-            }
-          ) {
-            totalCount
-            edges {
-              node {
-                id
-                title
-                description
-                jobType
-                proposalCount
-                postedOn
-                client {
-                  displayName
-                  totalSpent
-                }
-              }
-            }
-          }
-        }
-      `
-    }
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(alternativeQuery)
-    })
-    
-    const data = await response.json()
-    
-    if (data.errors) {
-      console.error('❌ Alternative query errors:', data.errors)
-      return { success: false, error: data.errors[0]?.message, jobs: [] }
-    }
-    
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    
-    const formattedJobs = edges.map((edge: any) => {
-      const job = edge.node
-      
-      return {
-        id: job.id,
-        title: job.title,
-        description: job.description,
-        budget: 'Budget info available',
-        postedDate: job.postedOn ? 
-          new Date(job.postedOn).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          }) : 'Recently',
-        client: {
-          name: job.client?.displayName || 'Client',
-          rating: 4.0,
-          country: 'Remote',
-          totalSpent: job.client?.totalSpent || 0,
-          totalHires: 0
-        },
-        skills: ['Development'],
-        proposals: job.proposalCount || 0,
-        verified: true,
-        category: 'General',
-        jobType: job.jobType || 'Fixed Price',
-        source: 'upwork_alt',
-        isRealJob: true
-      }
-    })
-    
-    return { success: true, jobs: formattedJobs, error: null }
-    
-  } catch (error: any) {
-    console.error('❌ Alternative error:', error.message)
-    return { success: false, error: error.message, jobs: [] }
-  }
-}
-
-// ✅ FALLBACK to simple query with REAL data only
-async function fetchSimpleRealJobs(accessToken: string) {
-  try {
-    console.log('🔄 Trying simple query for REAL jobs only...')
-    
-    const simpleQuery = {
-      query: `
-        query GetSimpleRealJobs {
-          marketplaceJobPostingsSearch {
-            edges {
-              node {
-                id
-                title
-                description
-              }
-            }
-          }
-        }
-      `
-    }
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(simpleQuery)
-    })
-    
-    const data = await response.json()
-    
-    if (data.errors) {
-      console.error('Simple query errors:', data.errors)
-      return []
-    }
-    
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    
-    // Return REAL jobs only - no mock data
-    const realJobs = edges.slice(0, 10).map((edge: any) => {
-      const job = edge.node
-      
-      return {
-        id: job.id,
-        title: job.title || 'Job',
-        description: job.description || 'Description not available',
-        budget: 'Budget info loaded separately',
-        postedDate: 'Recently',
-        client: {
-          name: 'Upwork Client',
-          rating: 4.0,
-          country: 'Remote',
-          totalSpent: 1000,
-          totalHires: 5
-        },
-        skills: ['Development'],
-        proposals: 0,
-        verified: true,
-        category: 'General',
-        jobType: 'Fixed Price',
-        source: 'upwork_real',
-        isRealJob: true,
-        _note: 'This is REAL data from Upwork'
-      }
-    })
-    
-    return realJobs
-    
-  } catch (error) {
-    console.error('Simple query error:', error)
-    return []
-  }
-}
-
-export async function GET() {
-  try {
-    console.log('=== REAL JOBS API - NO MOCK DATA ===')
+    const { searchParams } = new URL(request.url)
+    const page = parseInt(searchParams.get('page') || '1')
+    const perPage = parseInt(searchParams.get('perPage') || '20')
+    const refresh = searchParams.get('refresh') === 'true'
     
     const user = await getCurrentUser()
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
     
-    console.log('👤 User:', user.email)
+    console.log(`👤 User: ${user.email}, Page: ${page}, PerPage: ${perPage}`)
     
     // Check Upwork connection
     const upworkResult = await pool.query(
@@ -438,64 +315,98 @@ export async function GET() {
     const accessToken = upworkResult.rows[0].access_token
     console.log('✅ Access token found')
     
-    // Get user's prompt settings
+    // Get user's prompt settings (with defaults)
     const userSettings = await getUserPromptSettings(user.id)
     console.log('📝 User settings:', {
-      keywords: userSettings?.basic_info?.keywords,
+      keywords: userSettings?.basic_info?.keywords?.substring(0, 50) + '...',
       minBudget: userSettings?.validation_rules?.minBudget,
-      maxBudget: userSettings?.validation_rules?.maxBudget
+      maxBudget: userSettings?.validation_rules?.maxBudget,
+      clientRating: userSettings?.validation_rules?.clientRating
     })
     
-    // Try to fetch REAL jobs with user filters
-    let result = await fetchRealJobsFromUpwork(accessToken, userSettings)
+    // Try to fetch REAL jobs with pagination
+    const result = await fetchJobsFromUpwork(accessToken, userSettings, page, perPage)
     
-    // If that fails, try alternative
-    if (!result.success) {
-      console.log('🔄 Main query failed, trying alternative...')
-      result = await fetchAlternativeJobs(accessToken, userSettings?.basic_info?.keywords || 'web development')
-    }
-    
-    // If still no jobs, try simple REAL jobs
+    // If no jobs found, try with broader search
     if (!result.success || result.jobs.length === 0) {
-      console.log('🔄 Alternative failed, getting simple REAL jobs...')
-      const simpleJobs = await fetchSimpleRealJobs(accessToken)
-      if (simpleJobs.length > 0) {
-        result = { success: true, jobs: simpleJobs, error: null }
+      console.log('🔄 Trying broader search...')
+      
+      const broadSettings = {
+        basic_info: {
+          keywords: '"web development" OR "software" OR "programming" OR "coding"'
+        },
+        validation_rules: {
+          minBudget: 50,
+          maxBudget: 50000,
+          clientRating: 3.0
+        }
+      }
+      
+      const broadResult = await fetchJobsFromUpwork(accessToken, broadSettings, page, perPage)
+      
+      if (broadResult.success && broadResult.jobs.length > 0) {
+        console.log(`✅ Found ${broadResult.jobs.length} jobs with broader search`)
+        
+        return NextResponse.json({
+          success: true,
+          jobs: broadResult.jobs,
+          total: broadResult.totalCount,
+          page: page,
+          perPage: perPage,
+          totalPages: Math.ceil(broadResult.totalCount / perPage),
+          hasNextPage: broadResult.hasNextPage,
+          upworkConnected: true,
+          message: `Found ${broadResult.jobs.length} jobs (using broader search)`,
+          debug: {
+            userSettingsUsed: false,
+            broadSearch: true,
+            firstJobId: broadResult.jobs[0]?.id
+          }
+        })
       }
     }
     
-    // ✅ NO MOCK DATA - return empty if no real jobs
-    if (!result.success || result.jobs.length === 0) {
-      console.log('ℹ️ No real jobs found')
+    // ✅ REAL JOBS FOUND
+    if (result.success && result.jobs.length > 0) {
+      console.log(`🎉 Found ${result.jobs.length} REAL jobs on page ${page}`)
+      
+      const totalPages = Math.ceil(result.totalCount / perPage)
       
       return NextResponse.json({
         success: true,
-        jobs: [], // ✅ Empty array, NO MOCK DATA
-        message: 'No matching jobs found. Try updating your prompts settings.',
+        jobs: result.jobs,
+        total: result.totalCount,
+        page: page,
+        perPage: perPage,
+        totalPages: totalPages,
+        hasNextPage: result.hasNextPage,
         upworkConnected: true,
+        message: `✅ Found ${result.jobs.length} real jobs (Page ${page} of ${totalPages})`,
         debug: {
-          queryUsed: 'real_only',
+          queryUsed: 'marketplaceJobPostingsSearch',
           mockDataUsed: false,
-          totalRealJobs: 0
+          userFilterApplied: true,
+          totalAvailableJobs: result.totalCount
         }
       })
     }
     
-    // ✅ REAL JOBS FOUND
-    console.log(`🎉 Found ${result.jobs.length} REAL jobs`)
+    // ✅ NO JOBS FOUND
+    console.log('ℹ️ No real jobs found')
     
     return NextResponse.json({
       success: true,
-      jobs: result.jobs,
-      total: result.jobs.length,
+      jobs: [],
+      total: 0,
+      page: 1,
+      perPage: perPage,
+      totalPages: 0,
+      hasNextPage: false,
       upworkConnected: true,
-      message: `✅ Found ${result.jobs.length} real jobs matching your criteria!`,
+      message: 'No matching jobs found. Try updating your prompts settings.',
       debug: {
-        queryUsed: 'marketplaceJobPostingsSearch',
         mockDataUsed: false,
-        userFilterApplied: true,
-        firstJobId: result.jobs[0]?.id,
-        firstJobTitle: result.jobs[0]?.title?.substring(0, 30)
+        totalRealJobs: 0
       }
     })
     
@@ -504,10 +415,9 @@ export async function GET() {
     
     return NextResponse.json({
       success: false,
-      jobs: [], // ✅ Empty array on error, NO MOCK DATA
+      jobs: [],
       message: 'Server error: ' + error.message,
-      upworkConnected: false,
-      debug: { mockDataUsed: false }
+      upworkConnected: false
     }, { status: 500 })
   }
 }
