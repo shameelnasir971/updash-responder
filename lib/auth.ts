@@ -1,6 +1,5 @@
 //lib/auth.ts
 
-
 import { cookies } from 'next/headers'
 import jwt from 'jsonwebtoken'
 import pool from './database'
@@ -32,23 +31,35 @@ export async function getCurrentUser() {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: number }
-    console.log('🔍 Decoded token user ID:', decoded.userId)
+    console.log('🔍 User ID:', decoded.userId)
     
-    // SIMPLE QUERY - sirf basic fields
+    // Get user with all fields, ensure name exists
     const result = await pool.query(
-      'SELECT id, email, name, company_name, profile_photo FROM users WHERE id = $1',
+      `SELECT id, email, name, company_name, profile_photo 
+       FROM users WHERE id = $1`,
       [decoded.userId]
     )
     
     if (result.rows.length === 0) {
-      console.log('❌ No user found with ID:', decoded.userId)
+      console.log('❌ No user found')
       return null
     }
     
-    console.log('✅ User found:', result.rows[0].email)
-    return result.rows[0]
+    const user = result.rows[0]
     
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // ✅ Ensure name field exists
+    if (!user.name) {
+      console.log('⚠️ User name is empty, setting default')
+      await pool.query(
+        'UPDATE users SET name = $1 WHERE id = $2',
+        [user.email.split('@')[0] || 'User', user.id]
+      )
+      user.name = user.email.split('@')[0] || 'User'
+    }
+    
+    console.log('✅ User found:', user.email, 'Name:', user.name)
+    return user
+    
   } catch (error: any) {
     console.error('❌ Auth error:', error.message)
     return null
