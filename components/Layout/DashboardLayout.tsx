@@ -31,22 +31,13 @@ export default function DashboardLayout({
   const checkAuth = async () => {
     try {
       const response = await fetch('/api/auth')
-      const data = await response.json()
-      
-      // ✅ FIX: Correct way to get user data
-      if (data.authenticated && data.user) {
-        console.log('✅ User authenticated:', data.user)
-        setUser({
-          id: data.user.id || 0,
-          name: data.user.name || 'User',
-          email: data.user.email || '',
-          company_name: data.user.company_name || ''
-        })
+      if (response.ok) {
+        const userData = await response.json()
+        setUser(userData)
       } else {
         router.push('/auth/login')
       }
     } catch (error) {
-      console.error('Auth error:', error)
       router.push('/auth/login')
     } finally {
       setLoading(false)
@@ -67,7 +58,7 @@ export default function DashboardLayout({
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading Dashboard...</p>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     )
@@ -78,7 +69,7 @@ export default function DashboardLayout({
       <Sidebar 
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
-        user={user} // ✅ Now guaranteed to have proper structure
+        user={user}
         handleSignOut={handleSignOut}
       />
 

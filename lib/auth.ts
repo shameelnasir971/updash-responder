@@ -1,5 +1,6 @@
 //lib/auth.ts
 
+
 import { cookies } from 'next/headers'
 import jwt from 'jsonwebtoken'
 import pool from './database'
@@ -31,35 +32,23 @@ export async function getCurrentUser() {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: number }
-    console.log('🔍 User ID:', decoded.userId)
+    console.log('🔍 Decoded token user ID:', decoded.userId)
     
-    // Get user with all fields, ensure name exists
+    // SIMPLE QUERY - sirf basic fields
     const result = await pool.query(
-      `SELECT id, email, name, company_name, profile_photo 
-       FROM users WHERE id = $1`,
+      'SELECT id, email, name, company_name, profile_photo FROM users WHERE id = $1',
       [decoded.userId]
     )
     
     if (result.rows.length === 0) {
-      console.log('❌ No user found')
+      console.log('❌ No user found with ID:', decoded.userId)
       return null
     }
     
-    const user = result.rows[0]
+    console.log('✅ User found:', result.rows[0].email)
+    return result.rows[0]
     
-    // ✅ Ensure name field exists
-    if (!user.name) {
-      console.log('⚠️ User name is empty, setting default')
-      await pool.query(
-        'UPDATE users SET name = $1 WHERE id = $2',
-        [user.email.split('@')[0] || 'User', user.id]
-      )
-      user.name = user.email.split('@')[0] || 'User'
-    }
-    
-    console.log('✅ User found:', user.email, 'Name:', user.name)
-    return user
-    
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('❌ Auth error:', error.message)
     return null
