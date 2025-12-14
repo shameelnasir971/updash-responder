@@ -106,14 +106,14 @@ export async function POST(request: NextRequest) {
 // Helper function for default settings
 function getDefaultSettings() {
   return {
-    basicInfo: {
-      feedName: 'Your Professional Feed',
-      keywords: '"web development" OR "react" OR "node.js" OR "full stack"',
-      specialty: 'Full Stack Web Development',
-      provisions: 'React Applications, Node.js APIs, MongoDB Databases',
-      hourlyRate: '$25-50',
-      location: 'Worldwide'
-    },
+   basicInfo: {
+  feedName: 'My Upwork Feed',
+  keywords: '"web development" OR "react" OR "node.js" OR "javascript" OR "full stack" OR "frontend" OR "backend"',
+  specialty: 'Full Stack Web Development',
+  provisions: 'React Applications, Node.js APIs, MongoDB Databases, REST APIs, Responsive Design',
+  hourlyRate: '$25-50',
+  location: 'Worldwide'
+},
     validationRules: {
       minBudget: 100,
       maxBudget: 10000,
