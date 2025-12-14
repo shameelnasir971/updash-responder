@@ -3,16 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../lib/auth'
 import pool from '../../../lib/database'
-import { DEFAULT_PROMPT_SETTINGS } from '@/lib/defaults';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// import { DEFAULT_PROMPT_SETTINGS } from '../../../../lib/defaults'
-
-// Update the getDefaultSettings function:
-function getDefaultSettings() {
-  return DEFAULT_PROMPT_SETTINGS
-}
 
 export async function GET() {
   try {
@@ -111,43 +104,43 @@ export async function POST(request: NextRequest) {
 }
 
 // Helper function for default settings
-// function getDefaultSettings() {
-//   return {
-//     basicInfo: {
-//       feedName: 'Your Professional Feed',
-//       keywords: '"web development" OR "react" OR "node.js" OR "full stack"',
-//       specialty: 'Full Stack Web Development',
-//       provisions: 'React Applications, Node.js APIs, MongoDB Databases',
-//       hourlyRate: '$25-50',
-//       location: 'Worldwide'
-//     },
-//     validationRules: {
-//       minBudget: 100,
-//       maxBudget: 10000,
-//       jobTypes: ['Fixed', 'Hourly'],
-//       clientRating: 4.0,
-//       requiredSkills: ['JavaScript', 'React', 'Node.js'],
-//       validationPrompt: `Evaluate if this job matches our criteria:
-// - Budget between $100 and $10,000
-// - Client rating 4.0+
-// - Fixed or Hourly payment
-// - Requires JavaScript/React/Node.js skills
-// - Project scope is clear
+function getDefaultSettings() {
+  return {
+    basicInfo: {
+      feedName: 'Your Professional Feed',
+      keywords: '"web development" OR "react" OR "node.js" OR "full stack"',
+      specialty: 'Full Stack Web Development',
+      provisions: 'React Applications, Node.js APIs, MongoDB Databases',
+      hourlyRate: '$25-50',
+      location: 'Worldwide'
+    },
+    validationRules: {
+      minBudget: 100,
+      maxBudget: 10000,
+      jobTypes: ['Fixed', 'Hourly'],
+      clientRating: 4.0,
+      requiredSkills: ['JavaScript', 'React', 'Node.js'],
+      validationPrompt: `Evaluate if this job matches our criteria:
+- Budget between $100 and $10,000
+- Client rating 4.0+
+- Fixed or Hourly payment
+- Requires JavaScript/React/Node.js skills
+- Project scope is clear
 
-// Return: APPROVE if matches, REJECT if doesn't match.`
-//     },
-//     proposalTemplates: [
-//       {
-//         id: '1',
-//         title: 'Main Proposal Template',
-//         content: `Write a professional Upwork proposal that shows understanding of job requirements and highlights relevant skills. Focus on client pain points.`
-//       }
-//     ],
-//     aiSettings: {
-//       model: 'gpt-4',
-//       temperature: 0.3,
-//       maxTokens: 600,
-//       creativity: 'medium'
-//     }
-//   }
-// }
+Return: APPROVE if matches, REJECT if doesn't match.`
+    },
+    proposalTemplates: [
+      {
+        id: '1',
+        title: 'Main Proposal Template',
+        content: `Write a professional Upwork proposal that shows understanding of job requirements and highlights relevant skills. Focus on client pain points.`
+      }
+    ],
+    aiSettings: {
+      model: 'gpt-4',
+      temperature: 0.3,
+      maxTokens: 600,
+      creativity: 'medium'
+    }
+  }
+}
