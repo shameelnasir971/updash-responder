@@ -1,8 +1,9 @@
 // components/Layout/Sidebar.tsx 
+// components/Layout/Sidebar.tsx 
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState } from 'react' // ✅ useEffect HATA DO
 
 export default function Sidebar({
   sidebarOpen,
@@ -12,59 +13,31 @@ export default function Sidebar({
 }: any) {
   const router = useRouter()
   const pathname = usePathname()
-  const [upworkConnected, setUpworkConnected] = useState(false)
-  const [connectionLoading, setConnectionLoading] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   
+  // ✅ SIMPLE STATIC NAVIGATION
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'History', href: '/dashboard/history', icon: '📝' },
-    { name: 'Prompts', href: '/dashboard/prompts', icon: '⚙️' },
+    { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
-  // Check connection status
-  useEffect(() => {
-    checkConnectionStatus()
-  }, [])
-
-  const checkConnectionStatus = async () => {
-    try {
-      const response = await fetch('/api/upwork/status')
-      const data = await response.json()
-      setUpworkConnected(data.connected)
-    } catch (error) {
-      console.error('Connection check error:', error)
-    }
-  }
-
+  // ✅ SIMPLE HANDLE CONNECT - NO STATUS CHECK
   const handleConnectUpwork = async () => {
-    setConnectionLoading(true)
+    setConnecting(true)
     
     try {
-      if (upworkConnected) {
-        // Disconnect
-        const response = await fetch('/api/upwork/disconnect', {
-          method: 'POST'
-        })
-        
-        if (response.ok) {
-          setUpworkConnected(false)
-          alert('Upwork disconnected successfully!')
-        }
-      } else {
-        // Connect
-        const response = await fetch('/api/upwork/auth')
-        const data = await response.json()
-        
-        if (data.success && data.url) {
-          window.location.href = data.url
-        } else {
-          alert('Failed to connect: ' + (data.error || 'Unknown error'))
-        }
-      }
+      // ✅ DIRECT URL USE KARO - API CALL NAHI
+      const clientId = 'b2cf4bfa369cac47083f664358d3accb'
+      const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
+      
+      const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
+      
+      window.location.href = authUrl
+      
     } catch (error: any) {
       alert('Error: ' + error.message)
-    } finally {
-      setConnectionLoading(false)
+      setConnecting(false)
     }
   }
 
@@ -91,7 +64,7 @@ export default function Sidebar({
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <h1 className="text-xl font-bold text-white">UPDASH RESPONDER</h1>
-              <p className="text-gray-400 text-xs">Upwork Assistant</p>
+              <p className="text-gray-400 text-xs"> Upwork Assistant</p>
             </div>
           </div>
         </div>
@@ -118,57 +91,27 @@ export default function Sidebar({
             ))}
           </nav>
 
-          {/* Upwork Connection Card */}
+          {/* Upwork Connection Card - SIMPLE */}
           <div className="px-4 mt-6">
             <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-3">
-                Upwork Connection
-              </h3>
-              
-              <div className="flex items-center mb-4">
-                <div className={`w-3 h-3 rounded-full mr-2 ${upworkConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                <span className="text-gray-300 text-sm">
-                  {upworkConnected ? 'Connected' : 'Not Connected'}
-                </span>
-              </div>
+              <h3 className="text-lg font-semibold text-white mb-3">Upwork Connection</h3>
+              <p className="text-gray-300 text-sm mb-4">
+                Connect your Upwork account to access job data
+              </p>
               
               <button 
                 onClick={handleConnectUpwork}
-                disabled={connectionLoading}
-                className={`w-full py-2 px-4 rounded-lg font-semibold transition-colors disabled:opacity-50 ${
-                  upworkConnected 
-                    ? 'bg-red-600 hover:bg-red-700 text-white' 
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
+                disabled={connecting}
+                className="w-full py-2 px-4 rounded-lg font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
               >
-                {connectionLoading ? (
-                  <span className="flex items-center justify-center">
-                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                    {upworkConnected ? 'Disconnecting...' : 'Connecting...'}
-                  </span>
-                ) : (
-                  upworkConnected ? '🔗 Disconnect Upwork' : '🔗 Connect Upwork'
-                )}
+                {connecting ? 'Connecting...' : '🔗 Connect Upwork'}
               </button>
-              
-              {upworkConnected && (
-                <p className="text-xs text-gray-400 mt-3 text-center">
-                  Click disconnect to remove connection. You can reconnect anytime.
-                </p>
-              )}
             </div>
           </div>
         </div>
 
-        {/* User Info & Sign Out */}
+        {/* Sign Out Button */}
         <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800 p-4">
-          {user && (
-            <div className="mb-4">
-              <div className="text-sm font-medium text-white">{user.name}</div>
-              <div className="text-xs text-gray-400 truncate">{user.email}</div>
-            </div>
-          )}
-          
           <button
             onClick={handleSignOut}
             className="group w-full flex items-center px-4 py-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-lg"
