@@ -104,6 +104,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Add this POST method to your existing file
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -112,58 +113,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { action, code } = body
-
-    // Handle OAuth callback code
-    if (code) {
-      const clientId = process.env.UPWORK_CLIENT_ID
-      const clientSecret = process.env.UPWORK_CLIENT_SECRET
-      const redirectUri = process.env.UPWORK_REDIRECT_URI
-
-      if (!clientId || !clientSecret || !redirectUri) {
-        return NextResponse.json({ error: 'OAuth not configured' }, { status: 500 })
-      }
-
-      // Exchange code for access token
-      const tokenResponse = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          grant_type: 'authorization_code',
-          code: code,
-          redirect_uri: redirectUri,
-        }),
-      })
-
-      if (!tokenResponse.ok) {
-        throw new Error('Token exchange failed')
-      }
-
-      const tokenData = await tokenResponse.json()
-      
-      // Save tokens to database
-      await pool.query(
-        `INSERT INTO upwork_accounts (user_id, access_token, refresh_token, expires_at, created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (user_id) 
-         DO UPDATE SET 
-           access_token = $2, 
-           refresh_token = $3, 
-           expires_at = $4, 
-           updated_at = NOW()`,
-        [user.id, tokenData.access_token, tokenData.refresh_token, 
-         new Date(Date.now() + tokenData.expires_in * 1000)]
-      )
-
-      return NextResponse.json({ 
-        success: true,
-        message: 'Upwork account connected successfully'
-      })
-    }
+    const { action } = body
 
     // Handle disconnect action
     if (action === 'disconnect') {
@@ -173,6 +123,7 @@ export async function POST(request: NextRequest) {
       )
       
       return NextResponse.json({ 
+        success: true,
         message: 'Upwork account disconnected successfully' 
       })
     }
