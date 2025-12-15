@@ -1,5 +1,5 @@
 // app/api/upwork/jobs/route.ts 
-// app/api/upwork/jobs/route.ts - COMPLETE UPDATED VERSION
+// app/api/upwork/jobs/route.ts - FIXED VERSION (SERVER-SIDE FILTERING)
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -29,16 +29,39 @@ function formatHourlyRate(min: number, max: number, currency: string): string {
   }
 }
 
-// ✅ MAIN FUNCTION: Fetch jobs from Upwork with search
-async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', limit: number = 100) {
-  try {
-    console.log(`🚀 Fetching ${limit} jobs${searchQuery ? ` for: "${searchQuery}"` : ''}`)
+// ✅ Helper: Server-side search filter
+function filterJobsBySearch(jobs: any[], searchQuery: string): any[] {
+  if (!searchQuery.trim()) return jobs
+  
+  const query = searchQuery.toLowerCase().trim()
+  
+  return jobs.filter(job => {
+    // Search in title
+    if (job.title?.toLowerCase().includes(query)) return true
     
-    // ✅ GraphQL query with variables for pagination and search
+    // Search in description
+    if (job.description?.toLowerCase().includes(query)) return true
+    
+    // Search in skills
+    if (job.skills?.some((skill: string) => skill.toLowerCase().includes(query))) return true
+    
+    // Search in category
+    if (job.category?.toLowerCase().includes(query)) return true
+    
+    return false
+  })
+}
+
+// ✅ MAIN FUNCTION: Fetch jobs from Upwork WITHOUT GraphQL filter
+async function fetchUpworkJobs(accessToken: string, limit: number = 100) {
+  try {
+    console.log(`🚀 Fetching ${limit} jobs from Upwork...`)
+    
+    // ✅ SIMPLE GraphQL query WITHOUT filter (jo kaam karta hai)
     const graphqlQuery = {
       query: `
-        query GetMarketplaceJobs($first: Int, $filter: MarketplaceJobPostingSearchFilterInput) {
-          marketplaceJobPostingsSearch(first: $first, filter: $filter) {
+        query GetMarketplaceJobs($first: Int) {
+          marketplaceJobPostingsSearch(first: $first) {
             edges {
               node {
                 id
@@ -67,14 +90,7 @@ async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', li
         }
       `,
       variables: {
-        first: limit,
-        filter: searchQuery ? {
-          or: [
-            { title: { contains: searchQuery } },
-            { description: { contains: searchQuery } },
-            { skills: { some: { name: { contains: searchQuery } } } }
-          ]
-        } : null
+        first: limit
       }
     }
     
@@ -97,26 +113,18 @@ async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', li
     
     const data = await response.json()
     
-    // Debug response
-    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node) {
-      console.log('🔍 First job title:', data.data.marketplaceJobPostingsSearch.edges[0].node.title)
-    }
-    
+    // Check for GraphQL errors
     if (data.errors) {
       console.error('GraphQL errors:', data.errors)
-      // Try simpler query without filter if filter fails
-      if (searchQuery) {
-        console.log('⚠️ Filter failed, trying without filter...')
-        return fetchUpworkJobs(accessToken, '', limit)
-      }
       return { success: false, error: data.errors[0]?.message, jobs: [] }
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
     const totalCount = data.data?.marketplaceJobPostingsSearch?.totalCount || 0
-    console.log(`✅ Found ${edges.length} jobs (Total available: ${totalCount})`)
     
-    // ✅ Format jobs with REAL data only
+    console.log(`✅ Successfully fetched ${edges.length} jobs from Upwork API`)
+    
+    // ✅ Format jobs
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
       
@@ -159,7 +167,7 @@ async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', li
         description: node.description || 'Job Description',
         budget: budgetText,
         postedDate: formattedDate,
-        // ✅ NEUTRAL CLIENT DATA - NO FAKE NAMES
+        // Neutral client data
         client: {
           name: 'Upwork Client',
           rating: 0,
@@ -167,7 +175,7 @@ async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', li
           totalSpent: 0,
           totalHires: 0
         },
-        skills: realSkills.slice(0, 10), // Show up to 10 skills
+        skills: realSkills.slice(0, 10),
         proposals: node.totalApplicants || 0,
         verified: true,
         category: cleanedCategory,
@@ -178,14 +186,11 @@ async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', li
       }
     })
     
-    console.log(`✅ Formatted ${jobs.length} jobs`)
-    
     return { 
       success: true, 
       jobs: jobs, 
       error: null,
-      totalCount: totalCount,
-      hasMore: data.data?.marketplaceJobPostingsSearch?.pageInfo?.hasNextPage || false
+      totalCount: totalCount
     }
     
   } catch (error: any) {
@@ -194,10 +199,10 @@ async function fetchUpworkJobs(accessToken: string, searchQuery: string = '', li
   }
 }
 
-// ✅ GET endpoint with search and limit
+// ✅ GET endpoint with SERVER-SIDE search
 export async function GET(request: NextRequest) {
   try {
-    console.log('=== JOBS API: WITH SEARCH & 100+ JOBS ===')
+    console.log('=== JOBS API: SERVER-SIDE SEARCH ===')
     
     const user = await getCurrentUser()
     if (!user) {
@@ -213,6 +218,7 @@ export async function GET(request: NextRequest) {
     
     console.log('📋 Request params:', { search, limit, user: user.email })
     
+    // Check Upwork connection
     const upworkResult = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
@@ -228,19 +234,40 @@ export async function GET(request: NextRequest) {
     }
     
     const accessToken = upworkResult.rows[0].access_token
-    const result = await fetchUpworkJobs(accessToken, search, limit)
+    
+    // Step 1: Fetch all jobs from Upwork
+    const result = await fetchUpworkJobs(accessToken, limit)
+    
+    if (!result.success) {
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        message: result.error || 'Failed to fetch jobs',
+        upworkConnected: true
+      })
+    }
+    
+    // Step 2: Apply server-side search filter
+    let filteredJobs = result.jobs
+    let searchMessage = ''
+    
+    if (search) {
+      const originalCount = filteredJobs.length
+      filteredJobs = filterJobsBySearch(filteredJobs, search)
+      searchMessage = ` (${filteredJobs.length} match "${search}")`
+    }
+    
+    console.log(`🔍 Search results: ${filteredJobs.length} jobs${search ? ` for "${search}"` : ''}`)
     
     return NextResponse.json({
-      success: result.success,
-      jobs: result.jobs,
-      total: result.jobs.length,
+      success: true,
+      jobs: filteredJobs,
+      total: filteredJobs.length,
       totalAvailable: result.totalCount || 0,
-      hasMore: result.hasMore || false,
-      message: result.success ? 
-        `✅ ${result.jobs.length} jobs loaded${search ? ` for "${search}"` : ''}` : 
-        `Error: ${result.error}`,
+      message: `✅ ${filteredJobs.length} jobs loaded${searchMessage}`,
       upworkConnected: true,
-      searchQuery: search || null
+      searchQuery: search || null,
+      searchApplied: !!search
     })
     
   } catch (error: any) {
