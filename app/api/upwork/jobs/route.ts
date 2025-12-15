@@ -7,11 +7,11 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// ✅ UPDATED CODE - MOCK CLIENT DATA HATA DO
 async function fetchUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching jobs with PROPER budget formatting...')
+    console.log('🚀 Fetching REAL jobs with REAL client data...');
     
-    // ✅ Same working query
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
@@ -21,24 +21,10 @@ async function fetchUpworkJobs(accessToken: string) {
                 id
                 title
                 description
-                amount {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                hourlyBudgetMin {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                hourlyBudgetMax {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                skills {
-                  name
-                }
+                amount { rawValue currency displayValue }
+                hourlyBudgetMin { rawValue currency displayValue }
+                hourlyBudgetMax { rawValue currency displayValue }
+                skills { name }
                 totalApplicants
                 category
                 createdDateTime
@@ -47,12 +33,23 @@ async function fetchUpworkJobs(accessToken: string) {
                 engagement
                 duration
                 durationLabel
+                # ✅ Client related fields agar available hain to use karo
+                client { 
+                  id
+                  # firstName aur lastName fields bhi check karo
+                  # rating (agar available ho)
+                }
+                clientActivity { 
+                  totalSpent
+                  totalHired
+                  totalPosted
+                }
               }
             }
           }
         }
       `
-    }
+    };
     
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
@@ -61,164 +58,141 @@ async function fetchUpworkJobs(accessToken: string) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(graphqlQuery)
-    })
-    
-    console.log('📥 Response status:', response.status)
+    });
     
     if (!response.ok) {
-      const error = await response.text()
-      console.error('API error:', error.substring(0, 300))
-      return { success: false, error: 'API request failed', jobs: [] }
+      const error = await response.text();
+      console.error('API error:', error.substring(0, 300));
+      return { success: false, error: 'API request failed', jobs: [] };
     }
     
-    const data = await response.json()
-    
-    // DEBUG: Check actual budget data
-    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node) {
-      const firstNode = data.data.marketplaceJobPostingsSearch.edges[0].node
-      console.log('💰 BUDGET DEBUG - First job:', {
-        id: firstNode.id,
-        title: firstNode.title,
-        amountObject: firstNode.amount,
-        rawValue: firstNode.amount?.rawValue,
-        currency: firstNode.amount?.currency,
-        displayValue: firstNode.amount?.displayValue
-      })
-    }
+    const data = await response.json();
     
     if (data.errors) {
-      console.error('GraphQL errors:', data.errors)
-      return { success: false, error: data.errors[0]?.message, jobs: [] }
+      console.error('GraphQL errors:', data.errors);
+      return { success: false, error: data.errors[0]?.message, jobs: [] };
     }
     
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} job edges`)
+    const edges = data.data?.marketplaceJobPostingsSearch?.edges || [];
+    console.log(`✅ Found ${edges.length} job edges with real data`);
     
-    // Format jobs with PROPER BUDGET
+    // ✅ REAL DATA ke saath format karo, MOCK DATA banane se bacho
     const jobs = edges.map((edge: any) => {
-      const node = edge.node || {}
+      const node = edge.node || {};
       
-      // ✅ PROPER BUDGET FORMATTING
-      let budgetText = 'Budget not specified'
-      
-      // Try fixed price (amount field)
+      // ✅ BUDGET FORMATTING (Real)
+      let budgetText = 'Budget not specified';
       if (node.amount?.rawValue) {
-        const rawValue = parseFloat(node.amount.rawValue)
-        const currency = node.amount.currency || 'USD'
-        
-        if (currency === 'USD') {
-          budgetText = `$${rawValue.toFixed(2)}`
-        } else if (currency === 'EUR') {
-          budgetText = `€${rawValue.toFixed(2)}`
-        } else if (currency === 'GBP') {
-          budgetText = `£${rawValue.toFixed(2)}`
-        } else {
-          budgetText = `${rawValue.toFixed(2)} ${currency}`
-        }
-      }
-      // Try hourly rate (hourlyBudgetMin/Max)
-      else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
-        const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
-        const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
-        const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
-        
-        let currencySymbol = ''
-        if (currency === 'USD') currencySymbol = '$'
-        else if (currency === 'EUR') currencySymbol = '€'
-        else if (currency === 'GBP') currencySymbol = '£'
-        else currencySymbol = currency + ' '
-        
-        if (minVal === maxVal || maxVal === 0) {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`
-        } else {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
-        }
-      }
-      // Fallback to displayValue
-      else if (node.amount?.displayValue) {
-        // Check if displayValue has currency info
-        const dispVal = node.amount.displayValue
-        if (dispVal.includes('$') || dispVal.includes('€') || dispVal.includes('£')) {
-          budgetText = dispVal
-        } else if (!isNaN(parseFloat(dispVal))) {
-          budgetText = `$${parseFloat(dispVal).toFixed(2)}`
-        }
+        const rawValue = parseFloat(node.amount.rawValue);
+        const currency = node.amount.currency || 'USD';
+        budgetText = formatCurrency(rawValue, currency);
+      } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
+        const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0;
+        const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal;
+        const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD';
+        budgetText = formatHourlyRate(minVal, maxVal, currency);
+      } else if (node.amount?.displayValue) {
+        budgetText = node.amount.displayValue;
       }
       
-      // Real skills
+      // ✅ REAL CLIENT DATA - FAKE NAMES BANANE SE BACHO
+      // Agar API se client ka naam aata hai to use karo, nahi to simple placeholder
+      let clientName = 'Client';
+      // GraphQL response ke structure ke mutabiq check karo
+      if (node.client?.firstName && node.client?.lastName) {
+        clientName = `${node.client.firstName} ${node.client.lastName}`;
+      } else if (node.client?.id) {
+        // Ya to client ID se koi logical naam banao, ya fir "Client" hi rahne do
+        clientName = `Client ${node.client.id.substring(0, 8)}`;
+      }
+      
+      // ✅ REAL CLIENT ACTIVITY (Agar API se aaye to)
+      const clientActivity = node.clientActivity || {};
+      const totalSpent = clientActivity.totalSpent || 0;
+      const totalHires = clientActivity.totalHired || clientActivity.totalHired || 0;
+      
+      // ✅ REAL SKILLS
       const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || 
-                        ['Skills not specified']
+                        ['Skills not specified'];
       
-      // Real proposal count
-      const realProposals = node.totalApplicants || 0
+      // ✅ REAL PROPOSAL COUNT
+      const realProposals = node.totalApplicants || 0;
       
-      // Real posted date
-      const postedDate = node.createdDateTime || node.publishedDateTime
+      // ✅ REAL POSTED DATE
+      const postedDate = node.createdDateTime || node.publishedDateTime;
       const formattedDate = postedDate ? 
         new Date(postedDate).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
           year: 'numeric'
         }) : 
-        'Recently'
+        'Recently';
       
-      // Real category - format nicely
-      const category = node.category || 'General'
-      const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+      // ✅ REAL CATEGORY
+      const category = node.category || 'General';
+      const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
       
-      // Unique client data based on job ID
-      const jobHash = parseInt(node.id.slice(-4)) || 0
-      const clientNames = ['Tech Solutions Inc', 'Digital Agency', 'Startup Company', 'Enterprise Client', 'Small Business', 'Freelance Client']
-      const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote']
-      
-      const clientIndex = jobHash % clientNames.length
-      const countryIndex = jobHash % countries.length
+      // ❌❌❌ YEH PURA FAKE CLIENT OBJECT HATA DO ❌❌❌
+      // Iski jagah sirf REAL data use karo
       
       return {
         id: node.id,
         title: node.title || 'Job Title',
         description: node.description || 'Job Description',
-        budget: budgetText, // ✅ PROPERLY FORMATTED BUDGET
+        budget: budgetText,
         postedDate: formattedDate,
+        // ✅ SIRF REAL YA LOGICAL CLIENT DATA
         client: {
-          name: clientNames[clientIndex],
-          rating: 4.0 + (jobHash % 10) / 10, // 4.0-4.9
-          country: countries[countryIndex],
-          totalSpent: 1000 + (jobHash * 100),
-          totalHires: 5 + (jobHash % 20)
+          name: clientName, // REAL ya logical naam
+          rating: 0, // Default 0, agar API se rating aaye to use karo
+          country: 'Not specified', // Default, agar API se country aaye to use karo
+          totalSpent: totalSpent, // REAL data from API
+          totalHires: totalHires  // REAL data from API
         },
         skills: realSkills.slice(0, 5),
         proposals: realProposals,
-        verified: true,
+        verified: true, // Yeh bhi API se aana chahiye
         category: cleanedCategory,
         jobType: node.engagement || node.durationLabel || 'Not specified',
         experienceLevel: node.experienceLevel || 'Not specified',
         source: 'upwork',
         isRealJob: true,
-        _debug_budget: {
-          rawValue: node.amount?.rawValue,
-          currency: node.amount?.currency,
-          hourlyMin: node.hourlyBudgetMin?.rawValue,
-          hourlyMax: node.hourlyBudgetMax?.rawValue
+        _debug: {
+          budgetRaw: node.amount?.rawValue,
+          clientId: node.client?.id,
+          hasRealClientData: !!node.client
         }
-      }
-    })
+      };
+    });
     
-    console.log(`✅ Formatted ${jobs.length} jobs with proper budgets`)
+    console.log(`✅ Formatted ${jobs.length} jobs with REAL client data`);
     
-    // Show budget examples
-    if (jobs.length > 0) {
-      console.log('💰 BUDGET EXAMPLES:')
-      jobs.slice(0, 3).forEach((job: { budget: any; title: string }, i: number) => {
-        console.log(`  Job ${i+1}: ${job.budget} - "${job.title.substring(0, 40)}..."`)
-      })
-    }
-    
-    return { success: true, jobs: jobs, error: null }
+    return { success: true, jobs: jobs, error: null };
     
   } catch (error: any) {
-    console.error('Fetch error:', error.message)
-    return { success: false, error: error.message, jobs: [] }
+    console.error('Fetch error:', error.message);
+    return { success: false, error: error.message, jobs: [] };
+  }
+}
+
+// Helper functions for formatting
+function formatCurrency(value: number, currency: string): string {
+  const symbols: { [key: string]: string } = {
+    'USD': '$', 'EUR': '€', 'GBP': '£'
+  };
+  const symbol = symbols[currency] || currency + ' ';
+  return `${symbol}${value.toFixed(2)}`;
+}
+
+function formatHourlyRate(min: number, max: number, currency: string): string {
+  const symbols: { [key: string]: string } = {
+    'USD': '$', 'EUR': '€', 'GBP': '£'
+  };
+  const symbol = symbols[currency] || currency + ' ';
+  if (min === max || max === 0) {
+    return `${symbol}${min.toFixed(2)}/hr`;
+  } else {
+    return `${symbol}${min.toFixed(2)}-${max.toFixed(2)}/hr`;
   }
 }
 
