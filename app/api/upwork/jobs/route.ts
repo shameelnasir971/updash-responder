@@ -13,32 +13,35 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
     
     // ✅ SIMPLIFIED GraphQL query without unsupported arguments
     const graphqlQuery = {
-      query: `
-        query GetMarketplaceJobs {
-          marketplaceJobPostingsSearch {
-            edges {
-              node {
-                id
-                title
-                description
-                amount { rawValue currency displayValue }
-                hourlyBudgetMin { rawValue currency displayValue }
-                hourlyBudgetMax { rawValue currency displayValue }
-                skills { name }
-                totalApplicants
-                category
-                createdDateTime
-                publishedDateTime
-                experienceLevel
-                engagement
-                duration
-                durationLabel
-              }
-            }
+  query: `
+    query GetMarketplaceJobs {
+      marketplaceJobPostings(
+        searchType: USER_JOBS_SEARCH
+        sortAttributes: { field: RECENCY }
+      ) {
+        edges {
+          node {
+            id
+            title
+            description
+            amount { rawValue currency displayValue }
+            hourlyBudgetMin { rawValue currency displayValue }
+            hourlyBudgetMax { rawValue currency displayValue }
+            skills { name }
+            totalApplicants
+            category
+            createdDateTime
+            publishedDateTime
+            experienceLevel
+            engagement
+            duration
+            durationLabel
           }
         }
-      `
-    };
+      }
+    }
+  `
+};
     
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
