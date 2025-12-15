@@ -73,20 +73,16 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ UPDATED: Accept search parameter
+  // ✅ UPDATED: Accept search parameter (client-side filtering now)
   const loadJobs = async (search = '') => {
     setJobsLoading(true)
     setConnectionError('')
     
     try {
-      console.log('🔄 Loading REAL jobs...', search ? `Search: "${search}"` : '')
+      console.log('🔄 Loading REAL jobs...', search ? `Will filter for: "${search}"` : '')
       
-      // ✅ ADD SEARCH PARAMETER TO URL
-      const url = search 
-        ? `/api/upwork/jobs?search=${encodeURIComponent(search)}`
-        : '/api/upwork/jobs'
-      
-      const response = await fetch(url)
+      // ✅ Always load all jobs, client-side filter
+      const response = await fetch('/api/upwork/jobs')
       
       if (response.status === 401) {
         setConnectionError('Session expired. Please login again.')
@@ -98,20 +94,39 @@ export default function Dashboard() {
       console.log('📊 Jobs Data:', {
         success: data.success,
         count: data.jobs?.length,
+        originalCount: data.originalCount,
         message: data.message
       })
 
       if (data.success) {
-        setJobs(data.jobs || [])
+        let filteredJobs = data.jobs || []
+        
+        // ✅ Client-side filtering if search term exists
+        if (search) {
+          const searchLower = search.toLowerCase()
+          filteredJobs = filteredJobs.filter((job: Job) => 
+            job.title.toLowerCase().includes(searchLower) ||
+            job.description.toLowerCase().includes(searchLower) ||
+            job.skills.some(skill => skill.toLowerCase().includes(searchLower)) ||
+            (job.category && job.category.toLowerCase().includes(searchLower))
+          )
+        }
+        
+        setJobs(filteredJobs)
         setUpworkConnected(data.upworkConnected || false)
         
-        if (data.jobs?.length === 0) {
+        if (filteredJobs.length === 0) {
           setConnectionError(search 
             ? `No jobs found for "${search}". Try different keywords.`
             : 'No jobs found. Try refreshing.'
           )
-        } else if (data.jobs?.length > 0) {
-          setConnectionError(data.message || `✅ Loaded ${data.jobs.length} real jobs!`)
+        } else if (filteredJobs.length > 0) {
+          setConnectionError(data.message || 
+            (search 
+              ? `🔍 Found ${filteredJobs.length} jobs for "${search}"`
+              : `✅ Loaded ${data.originalCount} real jobs from Upwork`
+            )
+          )
         }
       } else {
         setConnectionError(data.message || 'Failed to load jobs')
@@ -127,7 +142,7 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ NEW: Handle search submission
+  // ✅ Handle search submission
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchInput.trim()) {
@@ -139,7 +154,7 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ NEW: Clear search
+  // ✅ Clear search
   const handleClearSearch = () => {
     setSearchInput('')
     setSearchTerm('')
@@ -185,7 +200,7 @@ export default function Dashboard() {
             <div className="flex items-center space-x-4">
               <div className="flex-1">
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                  Search Upwork Jobs
+                  Search Jobs by Keyword
                 </label>
                 <div className="flex items-center">
                   <div className="relative flex-1">
@@ -194,7 +209,7 @@ export default function Dashboard() {
                       id="search"
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="Search by job title, keywords, or skills (e.g., 'Shopify', 'Web Developer', 'Logo Design')"
+                      placeholder="Search by job title, description, or skills (e.g., 'Shopify', 'Web Developer', 'Logo Design')"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
                     />
                     <div className="absolute inset-y-0 right-0 flex items-center pr-3">
@@ -224,8 +239,8 @@ export default function Dashboard() {
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
                   {searchTerm 
-                    ? `Showing results for: "${searchTerm}"`
-                    : 'Enter keywords to search Upwork jobs. You can copy job titles directly from Upwork and paste here.'
+                    ? `Showing filtered results for: "${searchTerm}"`
+                    : 'Enter keywords to filter jobs. All jobs are loaded from Upwork and filtered locally for instant results.'
                   }
                 </p>
               </div>
@@ -236,17 +251,6 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => {
-                  setSearchInput('Web Developer')
-                  setSearchTerm('Web Developer')
-                  loadJobs('Web Developer')
-                }}
-                className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors"
-              >
-                Web Developer
-              </button>
-              <button
-                type="button"
-                onClick={() => {
                   setSearchInput('Shopify')
                   setSearchTerm('Shopify')
                   loadJobs('Shopify')
@@ -254,6 +258,17 @@ export default function Dashboard() {
                 className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors"
               >
                 Shopify
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput('Web Developer')
+                  setSearchTerm('Web Developer')
+                  loadJobs('Web Developer')
+                }}
+                className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors"
+              >
+                Web Developer
               </button>
               <button
                 type="button"
@@ -297,6 +312,8 @@ export default function Dashboard() {
           <div className={`px-4 py-3 rounded-lg mb-6 ${
             connectionError.includes('✅') || connectionError.includes('Loaded')
               ? 'bg-green-100 border border-green-400 text-green-700'
+              : connectionError.includes('Found')
+              ? 'bg-blue-100 border border-blue-400 text-blue-700'
               : 'bg-yellow-100 border border-yellow-400 text-yellow-700'
           }`}>
             <div className="flex justify-between items-center">
@@ -304,6 +321,10 @@ export default function Dashboard() {
                 {connectionError.includes('✅') || connectionError.includes('Loaded') ? (
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : connectionError.includes('Found') ? (
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                 ) : (
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -367,7 +388,7 @@ export default function Dashboard() {
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                 <p className="text-gray-600">
-                  {searchTerm ? `Searching Upwork for "${searchTerm}"...` : 'Loading real jobs from Upwork API...'}
+                  {searchTerm ? `Searching for "${searchTerm}"...` : 'Loading real jobs from Upwork...'}
                 </p>
               </div>
             ) : jobs.length === 0 ? (
@@ -376,11 +397,11 @@ export default function Dashboard() {
                   {searchTerm ? '🔍' : '💼'}
                 </div>
                 <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  {searchTerm ? 'No Jobs Found' : 'Upwork Not Connected'}
+                  {searchTerm ? 'No Matching Jobs Found' : 'Upwork Not Connected'}
                 </h3>
                 <p className="text-gray-500 mb-6 max-w-md mx-auto">
                   {searchTerm 
-                    ? `No jobs found for "${searchTerm}". Try different keywords like "developer", "design", "marketing", etc.`
+                    ? `No jobs match "${searchTerm}". Try different keywords like "developer", "design", "marketing", etc.`
                     : 'Connect your Upwork account to see real jobs from the Upwork marketplace.'
                   }
                 </p>

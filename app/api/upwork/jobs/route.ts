@@ -1,5 +1,5 @@
 // app/api/upwork/jobs/route.ts 
-// app/api/upwork/jobs/route.ts - UPDATED WITH SEARCH
+// app/api/upwork/jobs/route.ts - FIXED VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -11,15 +11,11 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
   try {
     console.log('🚀 Fetching REAL jobs...', searchTerm ? `Search: "${searchTerm}"` : '');
     
-    // ✅ GraphQL query with search capability
+    // ✅ SIMPLIFIED GraphQL query without unsupported arguments
     const graphqlQuery = {
       query: `
-        query GetMarketplaceJobs($q: String) {
-          marketplaceJobPostingsSearch(
-            ${searchTerm ? `q: $q` : ''}
-            first: 50
-            sort: PUBLISHED_DATE_DESC
-          ) {
+        query GetMarketplaceJobs {
+          marketplaceJobPostingsSearch {
             edges {
               node {
                 id
@@ -41,8 +37,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
             }
           }
         }
-      `,
-      variables: searchTerm ? { q: searchTerm } : {}
+      `
     };
     
     const response = await fetch('https://api.upwork.com/graphql', {
@@ -169,9 +164,26 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
       };
     });
     
-    console.log(`✅ Formatted ${jobs.length} jobs with REAL data`);
+    // ✅ CLIENT-SIDE FILTERING for search
+    let filteredJobs = jobs;
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filteredJobs = jobs.filter((job: { title: string; description: string; skills: any[]; category: string }) => 
+        job.title.toLowerCase().includes(searchLower) ||
+        job.description.toLowerCase().includes(searchLower) ||
+        job.skills.some(skill => skill.toLowerCase().includes(searchLower)) ||
+        job.category.toLowerCase().includes(searchLower)
+      );
+      console.log(`🔍 Filtered ${filteredJobs.length} jobs for "${searchTerm}"`);
+    }
     
-    return { success: true, jobs: jobs, error: null };
+    return { 
+      success: true, 
+      jobs: filteredJobs, 
+      totalFound: filteredJobs.length,
+      originalCount: jobs.length,
+      error: null 
+    };
     
   } catch (error: any) {
     console.error('Fetch error:', error.message);
@@ -213,16 +225,19 @@ export async function GET(request: NextRequest) {
     
     const accessToken = upworkResult.rows[0].access_token
     
-    // ✅ PASS SEARCH TERM TO fetchUpworkJobs
+    // ✅ PASS SEARCH TERM TO fetchUpworkJobs (for client-side filtering)
     const result = await fetchUpworkJobs(accessToken, search)
     
     return NextResponse.json({
       success: result.success,
       jobs: result.jobs,
       total: result.jobs.length,
+      originalCount: result.originalCount || result.jobs.length,
       message: result.success ? 
-        `${search ? `🔍 ${result.jobs.length} jobs found for "${search}"` : `✅ ${result.jobs.length} jobs loaded`}` : 
-        `Error: ${result.error}`,
+        (search 
+          ? `🔍 Found ${result.totalFound} jobs for "${search}" (from ${result.originalCount} total)`
+          : `✅ Loaded ${result.originalCount} real jobs from Upwork`)
+        : `Error: ${result.error}`,
       upworkConnected: true,
       searchTerm: search || null
     })
