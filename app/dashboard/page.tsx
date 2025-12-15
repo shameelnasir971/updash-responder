@@ -20,7 +20,6 @@ interface Job {
   budget: string
   postedDate: string
   client: {
-    paymentVerified: any
     name: string
     rating: number
     country: string
@@ -266,16 +265,13 @@ export default function Dashboard() {
                     </span>
                   </div>
                   
-              // jobs.map() ke andar:
-<p className="text-gray-600 text-sm mb-3">
-  <span className="font-medium">{job.client.name}</span>
-  {job.client.rating > 0 ? ` • ${job.client.rating.toFixed(1)} ⭐` : ' • New Client'}
-  {job.client.country ? ` • ${job.client.country}` : ''}
-  {job.client.totalSpent > 0 ? ` • $${job.client.totalSpent} spent` : ''}
-  {job.client.totalHires > 0 ? ` • ${job.client.totalHires} hires` : ''}
-  {job.verified ? ' • ✅ Verified' : ''}
-  {job.proposals > 0 ? ` • Proposals: ${job.proposals}` : ' • No proposals yet'}
-</p>
+                  <p className="text-gray-600 text-sm mb-3">
+                    <span className="font-medium">{job.client.name}</span> • 
+                    Posted: {job.postedDate} • 
+                    Location: {job.client.country} •
+                    Rating: {job.client.rating} ⭐ •
+                    Proposals: {job.proposals}
+                  </p>
                   
                   <p className="text-gray-700 mb-3">
                     {job.description.substring(0, 250)}
