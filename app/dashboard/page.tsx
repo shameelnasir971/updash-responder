@@ -265,16 +265,13 @@ export default function Dashboard() {
                     </span>
                   </div>
                   
-              {/* Client Info Section */}
-<p className="text-gray-600 text-sm mb-3">
-  <span className="font-medium">
-    {job.client?.name || 'Client information not available'}
-  </span> • 
-  Posted: {job.postedDate} • 
-  {job.client?.country ? `Location: ${job.client.country} • ` : ''}
-  {job.client?.rating ? `Rating: ${job.client.rating} ⭐ • ` : ''}
-  Proposals: {job.proposals}
-</p>
+                  <p className="text-gray-600 text-sm mb-3">
+                    <span className="font-medium">{job.client.name}</span> • 
+                    Posted: {job.postedDate} • 
+                    Location: {job.client.country} •
+                    Rating: {job.client.rating} ⭐ •
+                    Proposals: {job.proposals}
+                  </p>
                   
                   <p className="text-gray-700 mb-3">
                     {job.description.substring(0, 250)}
