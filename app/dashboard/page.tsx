@@ -61,18 +61,19 @@ export default function Dashboard() {
     checkAuth()
   }, [])
 
-  useEffect(() => {
-    if (!autoRefresh || !upworkConnected) return
-    
-    const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing jobs...')
-      loadJobs(searchTerm, false, true)
-      setRefreshCount(prev => prev + 1)
-      setLastRefreshTime(new Date())
-    }, 3 * 60 * 1000) // 3 minutes
-    
-    return () => clearInterval(interval)
-  }, [autoRefresh, upworkConnected, searchTerm])
+ useEffect(() => {
+  if (!autoRefresh || !upworkConnected) return
+  
+  const interval = setInterval(() => {
+    console.log('🔄 Auto-refreshing jobs...')
+    // ✅ Add page parameter
+    loadJobs(searchTerm, false, true, 1)
+    setRefreshCount(prev => prev + 1)
+    setLastRefreshTime(new Date())
+  }, 3 * 60 * 1000) // 3 minutes
+  
+  return () => clearInterval(interval)
+}, [autoRefresh, upworkConnected, searchTerm])
 
   const checkAuth = async () => {
     try {
@@ -93,84 +94,97 @@ export default function Dashboard() {
   }
 
   // ✅ IMPROVED: Load jobs with pagination
-  const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false) => {
-    if (!background) setJobsLoading(true)
-    setConnectionError('')
+// ✅ UPDATED: loadJobs function with page parameter
+const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false, pageNumber?: number) => {
+  const currentPage = pageNumber || page; // Use passed page or current page
+  
+  if (!background) setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading ALL available jobs...', 
+      search ? `Search: "${search}"` : '', 
+      forceRefresh ? '(Force Refresh)' : '',
+      `Page: ${currentPage}`
+    )
     
-    try {
-      console.log('🔄 Loading BULK jobs...', 
-        search ? `Search: "${search}"` : '', 
-        forceRefresh ? '(Force Refresh)' : ''
-      )
-      
-      const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}`
-      
-      const response = await fetch(url)
-      
-      if (response.status === 401) {
-        setConnectionError('Session expired. Please login again.')
-        window.location.href = '/auth/login'
+    // ✅ Correct URL with page parameter
+    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}page=${currentPage}`
+    
+    const response = await fetch(url)
+    
+    if (response.status === 401) {
+      setConnectionError('Session expired. Please login again.')
+      window.location.href = '/auth/login'
+      return
+    }
+    
+    const data = await response.json()
+    console.log('📊 Jobs Data:', {
+      success: data.success,
+      count: data.jobs?.length,
+      allJobsCount: data.allJobsCount,
+      totalCount: data.totalCount,
+      page: data.page,
+      totalPages: data.totalPages,
+      message: data.message,
+      cached: data.cached || false,
+      pagesFetched: data.pagesFetched
+    })
+
+    if (data.success) {
+      // If it's a background refresh, only update if we have more jobs
+      if (background && data.jobs?.length <= jobs.length) {
+        console.log('No new jobs in background refresh')
         return
       }
       
-      const data = await response.json()
-      console.log('📊 Jobs Data:', {
-        success: data.success,
-        count: data.jobs?.length,
-        totalUnique: data.totalUnique,
-        message: data.message,
-        cached: data.cached || false,
-        batchesFetched: data.batchesFetched
-      })
-
-      if (data.success) {
-        // If it's a background refresh, only update if we have more jobs
-        if (background && data.jobs?.length <= jobs.length) {
-          console.log('No new jobs in background refresh')
-          return
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
+      
+      if (data.jobs?.length === 0) {
+        setConnectionError(search 
+          ? `No jobs found for "${search}". Try different keywords.`
+          : 'No jobs found. Upwork API might be limiting requests. Try refreshing.'
+        )
+      } else if (data.jobs?.length > 0) {
+        const totalJobsMsg = data.allJobsCount 
+          ? ` (${data.allJobsCount} total jobs available)` 
+          : '';
+        
+        const message = data.cached 
+          ? `${data.message} (cached)${totalJobsMsg}`
+          : `${data.message}${totalJobsMsg}`
+        
+        setConnectionError(message)
+        
+        // Auto-clear success messages
+        if (!background && !forceRefresh) {
+          setTimeout(() => {
+            if (connectionError.includes('✅')) {
+              setConnectionError('')
+            }
+          }, 5000)
         }
-        
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        
-        if (data.jobs?.length === 0) {
-          setConnectionError(search 
-            ? `No jobs found for "${search}". Try different keywords.`
-            : 'No jobs found. Upwork API might be limiting requests. Try refreshing.'
-          )
-        } else if (data.jobs?.length > 0) {
-          const message = data.cached 
-            ? `${data.message} (cached)`
-            : data.message
-          
-          setConnectionError(message)
-          
-          // Auto-clear success messages
-          if (!background && !forceRefresh) {
-            setTimeout(() => {
-              if (connectionError.includes('✅')) {
-                setConnectionError('')
-              }
-            }, 4000)
-          }
-        }
-        
-        // Check if we have more jobs available
-        setHasMoreJobs(data.totalUnique > data.jobs?.length)
-        
-      } else {
-        setConnectionError(data.message || 'Failed to load jobs')
-        setJobs([])
       }
       
-    } catch (error: any) {
-      console.error('❌ Load jobs error:', error)
-      setConnectionError('Network error. Please check connection.')
+      // Set pagination state
+      setPage(data.page || currentPage)
+      setHasMoreJobs(data.hasMore || false)
+      
+    } else {
+      setConnectionError(data.message || 'Failed to load jobs')
       setJobs([])
-    } finally {
-      if (!background) setJobsLoading(false)
     }
-  }, [connectionError, jobs.length])
+    
+  } catch (error: any) {
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Network error. Please check connection.')
+    setJobs([])
+  } finally {
+    if (!background) setJobsLoading(false)
+  }
+}, [connectionError, jobs.length, page]) // ✅ Add page to dependencies
 
   // ✅ NEW: Load more jobs
   const loadMoreJobs = async () => {
@@ -208,32 +222,35 @@ export default function Dashboard() {
     }
   }
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (searchInput.trim()) {
-      setSearchTerm(searchInput.trim())
-      setPage(1)
-      loadJobs(searchInput.trim(), true)
-    } else {
-      setSearchTerm('')
-      setPage(1)
-      loadJobs('', true)
-    }
-  }
-
-  const handleClearSearch = () => {
-    setSearchInput('')
+const handleSearch = (e: React.FormEvent) => {
+  e.preventDefault()
+  if (searchInput.trim()) {
+    setSearchTerm(searchInput.trim())
+    setPage(1) // Reset to page 1
+    // ✅ Add page parameter
+    loadJobs(searchInput.trim(), true, false, 1)
+  } else {
     setSearchTerm('')
-    setPage(1)
-    loadJobs('', true)
+    setPage(1) // Reset to page 1
+    loadJobs('', true, false, 1)
   }
+}
 
-  const handleForceRefresh = () => {
-    setPage(1)
-    loadJobs(searchTerm, true)
-    setRefreshCount(prev => prev + 1)
-    setLastRefreshTime(new Date())
-  }
+ const handleClearSearch = () => {
+  setSearchInput('')
+  setSearchTerm('')
+  setPage(1) // Reset to page 1
+  // ✅ Add page parameter
+  loadJobs('', true, false, 1)
+}
+
+const handleForceRefresh = () => {
+  setPage(1) // Reset to page 1
+  // ✅ Add page parameter
+  loadJobs(searchTerm, true, false, 1)
+  setRefreshCount(prev => prev + 1)
+  setLastRefreshTime(new Date())
+}
 
   const handleJobClick = (job: Job) => {
     setSelectedJob(job)
@@ -645,6 +662,61 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+
+
+
+
+{/* Pagination Controls */}
+{jobs.length > 0 && (
+  <div className="p-6 border-t border-gray-200">
+    <div className="flex items-center justify-between">
+      <div className="text-sm text-gray-600">
+        Showing {jobs.length} jobs (page {page})
+      </div>
+      <div className="flex space-x-2">
+        <button
+          onClick={() => {
+            if (page > 1) {
+              // ✅ Correct: Pass 3 parameters + page number
+              loadJobs(searchTerm, false, false, page - 1)
+            }
+          }}
+          disabled={page === 1 || jobsLoading}
+          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+        >
+          Previous
+        </button>
+        
+        <button
+          onClick={() => {
+            if (hasMoreJobs) {
+              // ✅ Correct: Pass 3 parameters + page number
+              loadJobs(searchTerm, false, false, page + 1)
+            }
+          }}
+          disabled={!hasMoreJobs || jobsLoading}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+        >
+          Next Page
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         {/* Job Proposal Popup */}
         {showPopup && selectedJob && user && (
