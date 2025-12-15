@@ -1,7 +1,6 @@
 
 
 // app/dashboard/page.tsx 
-//org
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -45,14 +44,19 @@ export default function Dashboard() {
   const [upworkConnected, setUpworkConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   
+  // ✅ NEW: Search state
+  const [searchInput, setSearchInput] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [showSearchHelp, setShowSearchHelp] = useState(false)
+  
   // ✅ NEW: Popup state
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showPopup, setShowPopup] = useState(false)
 
   useEffect(() => {
     checkAuth()
-    loadJobs()
-  }, [])
+    loadJobs(searchTerm)
+  }, [searchTerm]) // ✅ Reload jobs when searchTerm changes
 
   const checkAuth = async () => {
     try {
@@ -71,13 +75,20 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async () => {
+  const loadJobs = async (search = '') => {
     setJobsLoading(true)
     setConnectionError('')
     
     try {
-      console.log('🔄 Loading REAL jobs...')
-      const response = await fetch('/api/upwork/jobs')
+      console.log('🔄 Loading jobs...', search ? `Search: "${search}"` : 'All jobs')
+      
+      // ✅ Build URL with search parameter
+      let url = '/api/upwork/jobs'
+      if (search.trim()) {
+        url += `?search=${encodeURIComponent(search.trim())}`
+      }
+      
+      const response = await fetch(url)
       
       if (response.status === 401) {
         setConnectionError('Session expired. Please login again.')
@@ -89,18 +100,26 @@ export default function Dashboard() {
       console.log('📊 Jobs Data:', {
         success: data.success,
         count: data.jobs?.length,
+        searchTerm: data.searchTerm,
         message: data.message
       })
 
       if (data.success) {
-        // ✅ REAL JOBS SET KARO - NO MOCK DATA
         setJobs(data.jobs || [])
         setUpworkConnected(data.upworkConnected || false)
         
         if (data.jobs?.length === 0) {
-          setConnectionError('No jobs found. Try refreshing.')
+          if (search) {
+            setConnectionError(`No jobs found for "${search}". Try different keywords.`)
+          } else {
+            setConnectionError('No jobs found. Try refreshing.')
+          }
         } else if (data.jobs?.length > 0) {
-          setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+          if (search) {
+            setConnectionError(`✅ Found ${data.jobs.length} jobs for "${search}"`)
+          } else {
+            setConnectionError(`✅ Loaded ${data.jobs.length} jobs`)
+          }
         }
       } else {
         setConnectionError(data.message || 'Failed to load jobs')
@@ -136,7 +155,18 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ NEW: Handle job click - open popup
+  // ✅ NEW: Handle search submit
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSearchTerm(searchInput.trim())
+  }
+
+  // ✅ NEW: Clear search
+  const handleClearSearch = () => {
+    setSearchInput('')
+    setSearchTerm('')
+  }
+
   const handleJobClick = (job: Job) => {
     setSelectedJob(job)
     setShowPopup(true)
@@ -157,13 +187,13 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50">
       {/* ✅ Main Content */}
       <div className="flex-1 p-6">
-        {/* Header */}
+        {/* Header with Search */}
         <div className="mb-8">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center mb-6">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Jobs Dashboard</h1>
               <p className="text-sm text-gray-600">
-                {upworkConnected ? 'Real Upwork jobs from API' : 'Connect Upwork to see real jobs'}
+                {upworkConnected ? 'Search and filter real Upwork jobs' : 'Connect Upwork to see real jobs'}
               </p>
             </div>
             
@@ -178,29 +208,96 @@ export default function Dashboard() {
                 </button>
               )}
               <button 
-                onClick={loadJobs}
+                onClick={() => loadJobs(searchTerm)}
                 disabled={jobsLoading}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                {jobsLoading ? 'Loading...' : '🔄 Refresh Jobs'}
+                {jobsLoading ? 'Loading...' : '🔄 Refresh'}
               </button>
             </div>
           </div>
+
+          {/* ✅ SEARCH BAR */}
+          <div className="mb-6">
+            <form onSubmit={handleSearchSubmit} className="flex gap-2">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search Upwork jobs by keyword, title, or skill (e.g., 'Shopify developer', 'logo design', 'Python')..."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={jobsLoading}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold"
+              >
+                🔍 Search
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSearchHelp(!showSearchHelp)}
+                className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300"
+                title="Search Help"
+              >
+                ?
+              </button>
+            </form>
+            
+            {/* Search Tips */}
+            {showSearchHelp && (
+              <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-semibold text-blue-900 mb-2">💡 Search Tips:</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• Copy keywords from Upwork job titles and paste here</li>
+                  <li>• Search by skills: "React", "Python", "logo design"</li>
+                  <li>• Search by job type: "Shopify", "WordPress", "T-shirt design"</li>
+                  <li>• Leave empty to see all available jobs</li>
+                </ul>
+              </div>
+            )}
+            
+            {/* Current Search Status */}
+            {searchTerm && (
+              <div className="mt-3 flex items-center justify-between">
+                <p className="text-sm text-gray-700">
+                  Showing results for: <span className="font-semibold">"{searchTerm}"</span>
+                </p>
+                <button
+                  onClick={handleClearSearch}
+                  className="text-sm text-red-600 hover:text-red-800"
+                >
+                  Clear search
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Error Message */}
+        {/* Error/Success Message */}
         {connectionError && (
           <div className={`px-4 py-3 rounded-lg mb-6 ${
-            connectionError.includes('Success') 
+            connectionError.includes('✅') 
               ? 'bg-green-100 border border-green-400 text-green-700' 
               : 'bg-yellow-100 border border-yellow-400 text-yellow-700'
           }`}>
             <div className="flex justify-between items-center">
               <span>{connectionError}</span>
               <button 
-                onClick={loadJobs}
+                onClick={() => loadJobs(searchTerm)}
                 className={`ml-4 text-sm px-3 py-1 rounded ${
-                  connectionError.includes('Success')
+                  connectionError.includes('✅')
                     ? 'bg-green-600 text-white hover:bg-green-700'
                     : 'bg-yellow-600 text-white hover:bg-yellow-700'
                 }`}
@@ -216,10 +313,10 @@ export default function Dashboard() {
           <div className="p-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900">
-                {upworkConnected ? '📊 Real Upwork Jobs' : 'Connect Upwork Account'}
+                {searchTerm ? `🔍 Results for "${searchTerm}"` : '📊 All Upwork Jobs'}
               </h2>
               <div className="text-sm text-gray-600">
-                {jobs.length} jobs available
+                {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'} found
               </div>
             </div>
           </div>
@@ -228,20 +325,33 @@ export default function Dashboard() {
             {jobsLoading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading real jobs from Upwork API...</p>
+                <p className="text-gray-600">
+                  {searchTerm ? `Searching Upwork for "${searchTerm}"...` : 'Loading jobs from Upwork...'}
+                </p>
               </div>
             ) : jobs.length === 0 ? (
               <div className="text-center py-12">
-                <div className="text-gray-400 mb-4 text-6xl">💼</div>
+                <div className="text-gray-400 mb-4 text-6xl">
+                  {searchTerm ? '🔍' : '💼'}
+                </div>
                 <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  {upworkConnected ? 'No Jobs Found' : 'Upwork Not Connected'}
+                  {searchTerm ? `No jobs found for "${searchTerm}"` : 'No Jobs Found'}
                 </h3>
                 <p className="text-gray-500 mb-6">
-                  {upworkConnected 
-                    ? 'Try refreshing or check Upwork directly.' 
-                    : 'Connect your Upwork account to see real jobs.'}
+                  {searchTerm 
+                    ? 'Try different keywords or check spelling.' 
+                    : upworkConnected 
+                      ? 'Try refreshing or use the search bar.' 
+                      : 'Connect your Upwork account to see jobs.'}
                 </p>
-                {!upworkConnected && (
+                {searchTerm ? (
+                  <button 
+                    onClick={handleClearSearch}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+                  >
+                    Clear Search & Show All Jobs
+                  </button>
+                ) : !upworkConnected && (
                   <button 
                     onClick={handleConnectUpwork}
                     className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700"
@@ -269,8 +379,7 @@ export default function Dashboard() {
                   <p className="text-gray-600 text-sm mb-3">
                     <span className="font-medium">{job.client.name}</span> • 
                     Posted: {job.postedDate} • 
-                    Location: {job.client.country} •
-                    Rating: {job.client.rating} ⭐ •
+                    Category: {job.category} •
                     Proposals: {job.proposals}
                   </p>
                   
@@ -286,9 +395,11 @@ export default function Dashboard() {
                           {skill}
                         </span>
                       ))}
-                      <span className="text-gray-500 text-sm">
-                        {job.verified ? '✅ Verified' : '⚠️ Not Verified'}
-                      </span>
+                      {job.skills.length > 3 && (
+                        <span className="text-gray-500 text-sm">
+                          +{job.skills.length - 3} more
+                        </span>
+                      )}
                     </div>
                     
                     <button 
@@ -307,7 +418,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ✅ NEW: Job Proposal Popup */}
+        {/* Job Proposal Popup */}
         {showPopup && selectedJob && user && (
           <JobProposalPopup
             job={selectedJob}
