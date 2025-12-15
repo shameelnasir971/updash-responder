@@ -95,21 +95,20 @@ export default function Dashboard() {
 
   // ✅ IMPROVED: Load jobs with pagination
 // ✅ UPDATED: loadJobs function with page parameter
-const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false, pageNumber?: number) => {
-  const currentPage = pageNumber || page; // Use passed page or current page
-  
+const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false, pageNumber = 1) => {
   if (!background) setJobsLoading(true)
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading ALL available jobs...', 
-      search ? `Search: "${search}"` : '', 
-      forceRefresh ? '(Force Refresh)' : '',
-      `Page: ${currentPage}`
+    console.log('🔄 Loading jobs...', 
+      search ? `Search: "${search}"` : 'ALL JOBS',
+      `Page: ${pageNumber}`,
+      forceRefresh ? '(Force Refresh)' : ''
     )
     
-    // ✅ Correct URL with page parameter
-    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}page=${currentPage}`
+    // ✅ Use bulk mode for more jobs, simple mode for search
+    const useBulkMode = !search // Use bulk mode only for all jobs, not for search
+    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}${useBulkMode ? 'bulk=true&' : ''}page=${pageNumber}&limit=20`
     
     const response = await fetch(url)
     
@@ -124,53 +123,30 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
       success: data.success,
       count: data.jobs?.length,
       allJobsCount: data.allJobsCount,
-      totalCount: data.totalCount,
       page: data.page,
       totalPages: data.totalPages,
       message: data.message,
-      cached: data.cached || false,
-      pagesFetched: data.pagesFetched
+      cached: data.cached || false
     })
 
     if (data.success) {
-      // If it's a background refresh, only update if we have more jobs
-      if (background && data.jobs?.length <= jobs.length) {
-        console.log('No new jobs in background refresh')
-        return
-      }
-      
       setJobs(data.jobs || [])
       setUpworkConnected(data.upworkConnected || false)
+      setPage(data.page || pageNumber)
+      setHasMoreJobs(data.hasMore || false)
       
       if (data.jobs?.length === 0) {
         setConnectionError(search 
           ? `No jobs found for "${search}". Try different keywords.`
-          : 'No jobs found. Upwork API might be limiting requests. Try refreshing.'
+          : 'No jobs found. Try refreshing.'
         )
       } else if (data.jobs?.length > 0) {
-        const totalJobsMsg = data.allJobsCount 
-          ? ` (${data.allJobsCount} total jobs available)` 
-          : '';
+        const totalMsg = data.allJobsCount > data.jobs?.length 
+          ? ` (${data.allJobsCount} total available)` 
+          : ''
         
-        const message = data.cached 
-          ? `${data.message} (cached)${totalJobsMsg}`
-          : `${data.message}${totalJobsMsg}`
-        
-        setConnectionError(message)
-        
-        // Auto-clear success messages
-        if (!background && !forceRefresh) {
-          setTimeout(() => {
-            if (connectionError.includes('✅')) {
-              setConnectionError('')
-            }
-          }, 5000)
-        }
+        setConnectionError(`${data.message}${totalMsg}`)
       }
-      
-      // Set pagination state
-      setPage(data.page || currentPage)
-      setHasMoreJobs(data.hasMore || false)
       
     } else {
       setConnectionError(data.message || 'Failed to load jobs')
@@ -184,7 +160,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
   } finally {
     if (!background) setJobsLoading(false)
   }
-}, [connectionError, jobs.length, page]) // ✅ Add page to dependencies
+}, [connectionError, jobs.length]) // ✅ Add page to dependencies
 
   // ✅ NEW: Load more jobs
   const loadMoreJobs = async () => {
