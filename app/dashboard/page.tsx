@@ -20,6 +20,7 @@ interface Job {
   budget: string
   postedDate: string
   client: {
+    paymentVerified: any
     name: string
     rating: number
     country: string
@@ -266,12 +267,15 @@ export default function Dashboard() {
                   </div>
                   
                   <p className="text-gray-600 text-sm mb-3">
-                    <span className="font-medium">{job.client.name}</span> • 
-                    Posted: {job.postedDate} • 
-                    Location: {job.client.country} •
-                    Rating: {job.client.rating} ⭐ •
-                    Proposals: {job.proposals}
-                  </p>
+  {/* Upwork-style display */}
+  <span className="font-medium">{job.client.name}</span> • 
+  {job.client.rating > 0 ? ` Rating: ${job.client.rating} ⭐ • ` : ' New Client • '}
+  {job.client.country} • 
+  {job.client.totalSpent > 0 ? ` $${job.client.totalSpent} spent • ` : ''}
+  {job.client.totalHires > 0 ? ` ${job.client.totalHires} hires` : ' No hires yet'} • 
+  {job.client.paymentVerified ? '✅ Payment verified' : '⚠️ Payment not verified'} • 
+  Proposals: {job.proposals}
+</p>
                   
                   <p className="text-gray-700 mb-3">
                     {job.description.substring(0, 250)}
