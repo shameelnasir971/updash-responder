@@ -1,5 +1,5 @@
 // app/api/upwork/jobs/route.ts 
-// app/api/upwork/jobs/route.ts 
+// app/api/upwork/jobs/route.ts - 100% REAL DATA VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -7,15 +7,21 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-async function fetchUpworkJobs(accessToken: string) {
+// ✅ REAL Upwork Jobs Fetch Function - NO MOCK DATA
+async function fetchRealUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching jobs with PROPER budget formatting...')
+    console.log('🚀 Fetching 100% REAL jobs from Upwork API...')
     
-    // ✅ Same working query
+    // ✅ COMPLETE GraphQL Query with ALL REAL CLIENT DATA
     const graphqlQuery = {
       query: `
-        query GetMarketplaceJobs {
-          marketplaceJobPostingsSearch {
+        query GetRealMarketplaceJobs {
+          marketplaceJobPostingsSearch(
+            first: 50,
+            filter: { 
+              category: ["Web Development", "Mobile Development", "Design & Creative", "Admin Support", "Accounting & Consulting"]
+            }
+          ) {
             edges {
               node {
                 id
@@ -38,17 +44,78 @@ async function fetchUpworkJobs(accessToken: string) {
                 }
                 skills {
                   name
+                  importance
                 }
                 totalApplicants
                 category
+                subcategory
                 createdDateTime
                 publishedDateTime
                 experienceLevel
                 engagement
                 duration
                 durationLabel
+                # ✅ REAL CLIENT DATA - No Mock
+                client {
+                  id
+                  displayName
+                  firstName
+                  lastName
+                  location {
+                    city
+                    state
+                    country
+                  }
+                  company {
+                    name
+                    size
+                    industry
+                  }
+                  stats {
+                    avgRating
+                    totalSpent
+                    totalHires
+                    totalJobsPosted
+                    totalHours
+                  }
+                  verificationStatus
+                  membershipDate
+                }
+                # ✅ JOB SPECIFIC REAL DATA
+                jobType
+                jobStatus
+                estimatedWorkload
+                preferredLocation
+                englishLevel
+                contractToHire
+                featured
+                recno
+                # ✅ BUDGET AND PAYMENT
+                budgetType
+                budgetAmount {
+                  amount
+                  currency
+                }
+                hourlyRate {
+                  min
+                  max
+                  currency
+                }
+                # ✅ ADDITIONAL JOB DETAILS
+                qualifications
+                responsibilities
+                applicantRequirements
+                screeningQuestions {
+                  question
+                  type
+                }
               }
             }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            totalCount
           }
         }
       `
@@ -59,100 +126,73 @@ async function fetchUpworkJobs(accessToken: string) {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
       body: JSON.stringify(graphqlQuery)
     })
     
-    console.log('📥 Response status:', response.status)
+    console.log('📥 Upwork API Response Status:', response.status)
     
     if (!response.ok) {
-      const error = await response.text()
-      console.error('API error:', error.substring(0, 300))
-      return { success: false, error: 'API request failed', jobs: [] }
+      const errorText = await response.text()
+      console.error('❌ Upwork API Error:', errorText.substring(0, 300))
+      return { success: false, error: `API request failed: ${response.status}`, jobs: [] }
     }
     
     const data = await response.json()
     
-    // DEBUG: Check actual budget data
-    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node) {
-      const firstNode = data.data.marketplaceJobPostingsSearch.edges[0].node
-      console.log('💰 BUDGET DEBUG - First job:', {
-        id: firstNode.id,
-        title: firstNode.title,
-        amountObject: firstNode.amount,
-        rawValue: firstNode.amount?.rawValue,
-        currency: firstNode.amount?.currency,
-        displayValue: firstNode.amount?.displayValue
+    // ✅ DEBUG: Check if we're getting real client data
+    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node?.client) {
+      const firstClient = data.data.marketplaceJobPostingsSearch.edges[0].node.client
+      console.log('✅ REAL CLIENT DATA RECEIVED:', {
+        name: firstClient.displayName || firstClient.firstName + ' ' + firstClient.lastName,
+        company: firstClient.company?.name,
+        country: firstClient.location?.country,
+        rating: firstClient.stats?.avgRating,
+        spent: firstClient.stats?.totalSpent,
+        hires: firstClient.stats?.totalHires
       })
     }
     
     if (data.errors) {
-      console.error('GraphQL errors:', data.errors)
+      console.error('❌ GraphQL errors:', data.errors)
       return { success: false, error: data.errors[0]?.message, jobs: [] }
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} job edges`)
+    console.log(`✅ Found ${edges.length} job edges with REAL data`)
     
-    // Format jobs with PROPER BUDGET
+    // ✅ Format jobs with 100% REAL DATA - NO MOCKING
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
+      const client = node.client || {}
+      const location = client.location || {}
+      const stats = client.stats || {}
+      const company = client.company || {}
       
-      // ✅ PROPER BUDGET FORMATTING
+      // ✅ REAL BUDGET FORMATTING (same as before)
       let budgetText = 'Budget not specified'
       
-      // Try fixed price (amount field)
       if (node.amount?.rawValue) {
         const rawValue = parseFloat(node.amount.rawValue)
         const currency = node.amount.currency || 'USD'
-        
-        if (currency === 'USD') {
-          budgetText = `$${rawValue.toFixed(2)}`
-        } else if (currency === 'EUR') {
-          budgetText = `€${rawValue.toFixed(2)}`
-        } else if (currency === 'GBP') {
-          budgetText = `£${rawValue.toFixed(2)}`
-        } else {
-          budgetText = `${rawValue.toFixed(2)} ${currency}`
-        }
-      }
-      // Try hourly rate (hourlyBudgetMin/Max)
-      else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
+        budgetText = formatCurrency(rawValue, currency)
+      } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
         const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
         const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
         const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
-        
-        let currencySymbol = ''
-        if (currency === 'USD') currencySymbol = '$'
-        else if (currency === 'EUR') currencySymbol = '€'
-        else if (currency === 'GBP') currencySymbol = '£'
-        else currencySymbol = currency + ' '
-        
-        if (minVal === maxVal || maxVal === 0) {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`
-        } else {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
-        }
-      }
-      // Fallback to displayValue
-      else if (node.amount?.displayValue) {
-        // Check if displayValue has currency info
-        const dispVal = node.amount.displayValue
-        if (dispVal.includes('$') || dispVal.includes('€') || dispVal.includes('£')) {
-          budgetText = dispVal
-        } else if (!isNaN(parseFloat(dispVal))) {
-          budgetText = `$${parseFloat(dispVal).toFixed(2)}`
-        }
+        budgetText = formatHourlyRate(minVal, maxVal, currency)
+      } else if (node.amount?.displayValue) {
+        budgetText = node.amount.displayValue
       }
       
-      // Real skills
-      const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || 
-                        ['Skills not specified']
+      // ✅ REAL SKILLS
+      const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || []
       
-      // Real proposal count
+      // ✅ REAL PROPOSAL COUNT
       const realProposals = node.totalApplicants || 0
       
-      // Real posted date
+      // ✅ REAL POSTED DATE
       const postedDate = node.createdDateTime || node.publishedDateTime
       const formattedDate = postedDate ? 
         new Date(postedDate).toLocaleDateString('en-US', {
@@ -162,69 +202,125 @@ async function fetchUpworkJobs(accessToken: string) {
         }) : 
         'Recently'
       
-      // Real category - format nicely
+      // ✅ REAL CATEGORY
       const category = node.category || 'General'
       const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
       
-      // Unique client data based on job ID
-      const jobHash = parseInt(node.id.slice(-4)) || 0
-      const clientNames = ['Tech Solutions Inc', 'Digital Agency', 'Startup Company', 'Enterprise Client', 'Small Business', 'Freelance Client']
-      const countries = ['USA', 'UK', 'Canada', 'Australia', 'Germany', 'Remote']
+      // ✅ 100% REAL CLIENT DATA - NO MOCKING
+      const realClient = {
+        // ✅ REAL CLIENT NAME
+        name: client.displayName || 
+              (client.firstName && client.lastName ? `${client.firstName} ${client.lastName}` : '') ||
+              company.name || 
+              'Upwork Client', // Only as last resort
+        
+        // ✅ REAL RATING (null if not available)
+        rating: stats.avgRating || null,
+        
+        // ✅ REAL COUNTRY
+        country: location.country || null,
+        
+        // ✅ REAL TOTAL SPENT
+        totalSpent: stats.totalSpent || null,
+        
+        // ✅ REAL TOTAL HIRES
+        totalHires: stats.totalHires || null,
+        
+        // ✅ ADDITIONAL REAL DATA
+        city: location.city,
+        state: location.state,
+        companyName: company.name,
+        companySize: company.size,
+        industry: company.industry,
+        verificationStatus: client.verificationStatus,
+        membershipDate: client.membershipDate,
+        totalJobsPosted: stats.totalJobsPosted,
+        totalHours: stats.totalHours
+      }
       
-      const clientIndex = jobHash % clientNames.length
-      const countryIndex = jobHash % countries.length
+      // ✅ Remove null values from client object
+      const cleanClient = Object.fromEntries(
+        Object.entries(realClient).filter(([_, v]) => v != null)
+      )
       
       return {
         id: node.id,
-        title: node.title || 'Job Title',
-        description: node.description || 'Job Description',
-        budget: budgetText, // ✅ PROPERLY FORMATTED BUDGET
+        title: node.title || 'Job',
+        description: node.description || 'No description available',
+        budget: budgetText,
         postedDate: formattedDate,
-        client: {
-          name: clientNames[clientIndex],
-          rating: 4.0 + (jobHash % 10) / 10, // 4.0-4.9
-          country: countries[countryIndex],
-          totalSpent: 1000 + (jobHash * 100),
-          totalHires: 5 + (jobHash % 20)
-        },
+        client: cleanClient, // ✅ 100% REAL CLIENT DATA
         skills: realSkills.slice(0, 5),
         proposals: realProposals,
-        verified: true,
         category: cleanedCategory,
         jobType: node.engagement || node.durationLabel || 'Not specified',
         experienceLevel: node.experienceLevel || 'Not specified',
+        duration: node.duration,
+        estimatedWorkload: node.estimatedWorkload,
+        preferredLocation: node.preferredLocation,
+        englishLevel: node.englishLevel,
+        contractToHire: node.contractToHire,
+        featured: node.featured,
         source: 'upwork',
-        isRealJob: true,
-        _debug_budget: {
-          rawValue: node.amount?.rawValue,
-          currency: node.amount?.currency,
-          hourlyMin: node.hourlyBudgetMin?.rawValue,
-          hourlyMax: node.hourlyBudgetMax?.rawValue
+        // ✅ REMOVED: verified, isRealJob, _debug_budget - No mock fields
+        // ✅ Only real data from API
+        rawClientData: client, // Optional: for debugging
+        rawJobData: { // Optional: for debugging
+          hasClientData: !!client,
+          hasBudgetData: !!(node.amount || node.hourlyBudgetMin),
+          skillsCount: realSkills.length
         }
       }
     })
     
-    console.log(`✅ Formatted ${jobs.length} jobs with proper budgets`)
+    console.log(`✅ Formatted ${jobs.length} jobs with 100% REAL data`)
     
-    // Show budget examples
+    // ✅ Show sample of real client data
     if (jobs.length > 0) {
-      console.log('💰 BUDGET EXAMPLES:')
-      jobs.slice(0, 3).forEach((job: { budget: any; title: string }, i: number) => {
-        console.log(`  Job ${i+1}: ${job.budget} - "${job.title.substring(0, 40)}..."`)
+      console.log('👤 REAL CLIENT DATA SAMPLES:')
+      jobs.slice(0, 3).forEach((job: any, i: number) => {
+        console.log(`  Job ${i+1}: ${job.client.name} from ${job.client.country || 'Unknown'} (Rating: ${job.client.rating || 'N/A'})`)
       })
     }
     
     return { success: true, jobs: jobs, error: null }
     
   } catch (error: any) {
-    console.error('Fetch error:', error.message)
+    console.error('❌ Fetch error:', error.message)
     return { success: false, error: error.message, jobs: [] }
   }
 }
 
+// ✅ Helper: Format currency
+function formatCurrency(amount: number, currency: string): string {
+  const symbols: Record<string, string> = {
+    'USD': '$',
+    'EUR': '€',
+    'GBP': '£',
+    'INR': '₹',
+    'AUD': 'A$',
+    'CAD': 'C$'
+  }
+  
+  const symbol = symbols[currency] || currency + ' '
+  return `${symbol}${amount.toFixed(2)}`
+}
+
+// ✅ Helper: Format hourly rate
+function formatHourlyRate(min: number, max: number, currency: string): string {
+  const symbol = formatCurrency(1, currency).replace('1.00', '')
+  
+  if (min === max || max === 0) {
+    return `${symbol}${min.toFixed(2)}/hr`
+  } else {
+    return `${symbol}${min.toFixed(2)}-${max.toFixed(2)}/hr`
+  }
+}
+
+// ✅ Main GET Endpoint
 export async function GET() {
   try {
-    console.log('=== JOBS API: UPDATED BUDGET VERSION ===')
+    console.log('=== JOBS API: 100% REAL DATA VERSION ===')
     
     const user = await getCurrentUser()
     if (!user) {
@@ -235,41 +331,83 @@ export async function GET() {
     
     console.log('User:', user.email)
     
+    // ✅ Check Upwork connection
     const upworkResult = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
     
     if (upworkResult.rows.length === 0) {
+      console.log('❌ No Upwork account connected')
       return NextResponse.json({
         success: false,
         jobs: [],
-        message: 'Connect Upwork account first',
-        upworkConnected: false
+        message: 'Please connect your Upwork account first',
+        upworkConnected: false,
+        dataQuality: 'No access - Connect Upwork'
       })
     }
     
     const accessToken = upworkResult.rows[0].access_token
     
-    const result = await fetchUpworkJobs(accessToken)
+    if (!accessToken) {
+      console.log('❌ No access token found')
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        message: 'Upwork access token missing. Please reconnect.',
+        upworkConnected: false,
+        dataQuality: 'Token missing'
+      })
+    }
+    
+    console.log('✅ Access token found, fetching REAL jobs...')
+    
+    const result = await fetchRealUpworkJobs(accessToken)
+    
+    if (!result.success) {
+      console.error('❌ Failed to fetch jobs:', result.error)
+      
+      // ✅ NO MOCK DATA - Return empty with error
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        message: `Failed to fetch jobs: ${result.error}`,
+        upworkConnected: true,
+        dataQuality: 'API Error - No mock data returned'
+      })
+    }
+    
+    // ✅ SUCCESS: 100% REAL DATA
+    const realJobsCount = result.jobs.length
+    const jobsWithRealClient = result.jobs.filter((job: any) => job.client.name && job.client.name !== 'Upwork Client').length
+    
+    console.log(`🎉 SUCCESS: ${realJobsCount} real jobs, ${jobsWithRealClient} with identifiable clients`)
     
     return NextResponse.json({
-      success: result.success,
+      success: true,
       jobs: result.jobs,
-      total: result.jobs.length,
-      message: result.success ? 
-        `✅ SUCCESS: ${result.jobs.length} jobs with properly formatted budgets` : 
-        `Error: ${result.error}`,
+      total: realJobsCount,
+      message: `✅ SUCCESS: ${realJobsCount} jobs with 100% REAL data (${jobsWithRealClient} with real client info)`,
       upworkConnected: true,
-      dataQuality: result.success ? 'Real budgets with proper currency formatting' : 'Fix needed'
+      dataQuality: '100% Real - No mock data',
+      stats: {
+        totalJobs: realJobsCount,
+        jobsWithClientInfo: jobsWithRealClient,
+        jobsWithBudget: result.jobs.filter((j: any) => j.budget !== 'Budget not specified').length,
+        avgProposals: result.jobs.reduce((sum: number, j: any) => sum + (j.proposals || 0), 0) / realJobsCount || 0
+      }
     })
     
   } catch (error: any) {
-    console.error('Main error:', error)
+    console.error('❌ Main error:', error)
+    
+    // ✅ NO MOCK DATA ON ERROR - Return empty array
     return NextResponse.json({
       success: false,
       jobs: [],
-      message: 'Server error: ' + error.message
+      message: 'Server error: ' + error.message,
+      dataQuality: 'Error - No mock data returned'
     }, { status: 500 })
   }
 }
