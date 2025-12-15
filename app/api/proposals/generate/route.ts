@@ -51,19 +51,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ✅ Step 2: SMART PROMPT Banayein (Job Details + User Profile)
-    const smartPrompt = `
-TASK: Write a HIGHLY TARGETED and PROFESSIONAL Upwork proposal for the specific job below.
-The goal is to get an interview by showing you understand the client's EXACT needs and have the PERFECT skills.
-
-IMPORTANT RULES:
-1. NEVER use "Dear Client". Start directly with a professional greeting like "Hello," or "I read your job post with interest."
-2. Address the client by their name if known (${clientInfo?.name || 'Hello'}).
-3. Analyze the job description deeply. Mention 2-3 SPECIFIC requirements from it and explain how you will solve them.
-4. Integrate MY PROFILE naturally. Show why MY SPECIFIC background (${userBasicInfo.specialty}, ${userBasicInfo.provisions}) makes me the ideal candidate.
-5. Ask 1-2 INTELLIGENT QUESTIONS about the project that show you've thought about it.
-6. Keep it CONCISE (180-220 words), professional, and friendly.
-7. End with a single, clear call-to-action (e.g., "I'm available to discuss this further on a call.").
-8. Sign off with ONLY ONE "Best regards," followed by my name: ${userBasicInfo.name}.
+// Prompt mein is tarah update karein:
+const smartPrompt = `
+TASK: Write a HIGHLY TARGETED and PROFESSIONAL Upwork proposal...
 
 --- JOB TO APPLY FOR ---
 JOB TITLE: ${jobTitle}
@@ -73,17 +63,13 @@ ${jobDescription}
 
 BUDGET: ${budget || 'Not specified'}
 REQUIRED SKILLS: ${Array.isArray(skills) ? skills.join(', ') : skills || 'Various'}
-CLIENT INFO: ${clientInfo?.name || 'N/A'} (Rating: ${clientInfo?.rating || 'N/A'})
+// ❌ Client name aur rating hata do kyunki real nahi hai
+// CLIENT INFO: Not available from Upwork API
 
 --- MY PROFILE TO USE ---
 MY NAME: ${userBasicInfo.name}
 MY SPECIALTY: ${userBasicInfo.specialty}
-MY SERVICES: ${userBasicInfo.provisions}
-MY RATE/RANGE: ${userBasicInfo.hourlyRate}
-MY COMPANY: ${userBasicInfo.company || 'Freelance Professional'}
-
---- NOW, WRITE THE PERFECT PROPOSAL ---
-`
+...`;
 
     console.log('📝 [PROPOSAL REQUEST] Calling OpenAI with smart prompt...')
 
