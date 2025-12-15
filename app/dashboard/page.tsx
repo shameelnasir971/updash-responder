@@ -75,65 +75,68 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async (searchTerm: string = '') => {
-    setJobsLoading(true)
-    setIsSearching(!!searchTerm)
-    setConnectionError('')
-    
-    try {
-      console.log('🔄 Loading jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All jobs')
-      
-      // ✅ Build URL with search parameter if exists
-      const url = searchTerm 
-        ? `/api/upwork/jobs?search=${encodeURIComponent(searchTerm)}`
-        : '/api/upwork/jobs'
-      
-      const response = await fetch(url)
-      
-      if (response.status === 401) {
-        setConnectionError('Session expired. Please login again.')
-        window.location.href = '/auth/login'
-        return
-      }
-      
-      const data = await response.json()
-      console.log('📊 Jobs Data:', {
-        success: data.success,
-        count: data.jobs?.length,
-        searchTerm: data.searchTerm,
-        message: data.message
-      })
+ // EXISTING loadJobs FUNCTION KO YE UPDATED CODE SE REPLACE KAREIN:
 
-      if (data.success) {
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        
-        if (data.jobs?.length === 0) {
-          setConnectionError(
-            searchTerm 
-              ? `No jobs found for "${searchTerm}". Try different keywords.`
-              : 'No jobs found. Try refreshing.'
-          )
-        } else if (data.jobs?.length > 0) {
-          setConnectionError(
-            searchTerm 
-              ? `🔍 Found ${data.jobs.length} jobs for "${searchTerm}"`
-              : `✅ Loaded ${data.jobs.length} latest jobs`
-          )
-        }
-      } else {
-        setConnectionError(data.message || 'Failed to load jobs')
-        setJobs([])
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Load jobs error:', error)
-      setConnectionError('Network error. Please check connection.')
-      setJobs([])
-    } finally {
-      setJobsLoading(false)
+const loadJobs = async (searchTerm: string = '') => {
+  setJobsLoading(true)
+  setIsSearching(!!searchTerm)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All jobs')
+    
+    const url = searchTerm 
+      ? `/api/upwork/jobs?search=${encodeURIComponent(searchTerm)}`
+      : '/api/upwork/jobs'
+    
+    const response = await fetch(url)
+    
+    if (response.status === 401) {
+      setConnectionError('Session expired. Please login again.')
+      window.location.href = '/auth/login'
+      return
     }
+    
+    const data = await response.json()
+    console.log('📊 Jobs Data:', {
+      success: data.success,
+      count: data.jobs?.length,
+      searchTerm: data.searchTerm,
+      message: data.message
+    })
+
+    // ✅ FIX YAHAN HAI: data.success true/false ke hisaab se set karo
+    if (data.success === true) {
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
+      
+      if (data.jobs?.length === 0) {
+        setConnectionError(
+          searchTerm 
+            ? `No jobs found for "${searchTerm}". Try different keywords.`
+            : 'No jobs found. Try refreshing.'
+        )
+      } else if (data.jobs?.length > 0) {
+        setConnectionError(
+          searchTerm 
+            ? `🔍 Found ${data.jobs.length} jobs for "${searchTerm}"`
+            : `✅ ${data.message || `Loaded ${data.jobs.length} latest jobs`}`
+        )
+      }
+    } else {
+      // Agar API ne success: false return kiya
+      setConnectionError(data.message || 'Failed to load jobs')
+      setJobs([])
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Network error. Please check connection.')
+    setJobs([])
+  } finally {
+    setJobsLoading(false)
   }
+}
 
   // ✅ NEW: Handle Search
   const handleSearch = (e: React.FormEvent) => {
