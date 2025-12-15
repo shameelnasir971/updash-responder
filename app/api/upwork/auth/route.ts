@@ -1,9 +1,10 @@
 
 // app/api/upwork/auth/route.ts
+import { NextRequest, NextResponse } from 'next/server'
 
-import { NextResponse } from "next/server"
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
-// app/api/upwork/auth/route.ts - ADD THIS LINE
 export async function GET() {
   try {
     const clientId = process.env.UPWORK_CLIENT_ID
@@ -17,23 +18,13 @@ export async function GET() {
       })
     }
     
-    // ✅ IMPORTANT: Add required scopes
-    const scopes = [
-      'r_compact',
-      'r_jobs',
-      'r_workdiary',
-      'r_reports'
-    ].join(' ')
-    
-    // ✅ Updated OAuth URL with scopes
-    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}`
-    
-    console.log('🔗 Generated OAuth URL with scopes:', scopes)
+    // ✅ SIMPLE URL WITHOUT ANY EXTRA PARAMS
+    const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
     
     return NextResponse.json({
       success: true,
       url: authUrl,
-      message: 'URL generated with job reading permissions'
+      message: 'URL generated'
     })
     
   } catch (error: any) {
