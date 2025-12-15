@@ -9,13 +9,13 @@ export const runtime = 'nodejs'
 
 async function fetchUpworkJobs(accessToken: string) {
   try {
-    console.log('🚀 Fetching REAL jobs with available fields only...');
+    console.log('🚀 Fetching 100+ REAL jobs...');
     
-    // ✅ SAFE QUERY: Sirf available fields use karo
+    // ✅ UPDATED QUERY with FIRST 100 parameter
     const graphqlQuery = {
       query: `
         query GetMarketplaceJobs {
-          marketplaceJobPostingsSearch {
+          marketplaceJobPostingsSearch(first: 100) {  // ✅ YAHAN "first: 100" ADD KARO
             edges {
               node {
                 id
@@ -33,9 +33,11 @@ async function fetchUpworkJobs(accessToken: string) {
                 engagement
                 duration
                 durationLabel
-                # ⚠️ NOTE: Client-specific fields Upwork public API mein available NAHI hain
-                # Isliye hum sirf job details lete hain
               }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
             }
           }
         }
@@ -61,78 +63,44 @@ async function fetchUpworkJobs(accessToken: string) {
     
     const data = await response.json();
     
-    // DEBUG: Check response structure
-    console.log('📊 API Response keys:', Object.keys(data));
-    if (data.data?.marketplaceJobPostingsSearch?.edges?.[0]?.node) {
-      const sampleNode = data.data.marketplaceJobPostingsSearch.edges[0].node;
-      console.log('🔍 Sample node keys:', Object.keys(sampleNode));
-      console.log('💰 Sample budget:', sampleNode.amount);
-    }
+    // DEBUG: Check response
+    console.log('📊 API Response structure:', {
+      hasData: !!data.data,
+      hasSearch: !!data.data?.marketplaceJobPostingsSearch,
+      edgesCount: data.data?.marketplaceJobPostingsSearch?.edges?.length || 0
+    });
     
     if (data.errors) {
       console.error('GraphQL errors:', data.errors);
-      return { success: false, error: data.errors[0]?.message, jobs: [] };
+      // Try with smaller limit if 100 fails
+      return await trySmallerLimit(accessToken);
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || [];
     console.log(`✅ Found ${edges.length} job edges`);
     
-    // ✅ REAL DATA format karo - NO MOCK CLIENT DATA
+    // ✅ Format jobs (same as before, no mock data)
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {};
       
-      // ✅ BUDGET FORMATTING (Real)
+      // Budget formatting (same as before)
       let budgetText = 'Budget not specified';
       if (node.amount?.rawValue) {
         const rawValue = parseFloat(node.amount.rawValue);
         const currency = node.amount.currency || 'USD';
-        
-        if (currency === 'USD') {
-          budgetText = `$${rawValue.toFixed(2)}`;
-        } else if (currency === 'EUR') {
-          budgetText = `€${rawValue.toFixed(2)}`;
-        } else if (currency === 'GBP') {
-          budgetText = `£${rawValue.toFixed(2)}`;
-        } else {
-          budgetText = `${rawValue.toFixed(2)} ${currency}`;
-        }
-      }
-      // Try hourly rate
-      else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
+        budgetText = formatCurrency(rawValue, currency);
+      } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
         const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0;
         const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal;
         const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD';
-        
-        let currencySymbol = '';
-        if (currency === 'USD') currencySymbol = '$';
-        else if (currency === 'EUR') currencySymbol = '€';
-        else if (currency === 'GBP') currencySymbol = '£';
-        else currencySymbol = currency + ' ';
-        
-        if (minVal === maxVal || maxVal === 0) {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`;
-        } else {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`;
-        }
-      }
-      // Fallback to displayValue
-      else if (node.amount?.displayValue) {
-        const dispVal = node.amount.displayValue;
-        if (dispVal.includes('$') || dispVal.includes('€') || dispVal.includes('£')) {
-          budgetText = dispVal;
-        } else if (!isNaN(parseFloat(dispVal))) {
-          budgetText = `$${parseFloat(dispVal).toFixed(2)}`;
-        }
+        budgetText = formatHourlyRate(minVal, maxVal, currency);
       }
       
-      // ✅ REAL SKILLS (from API)
+      // Skills
       const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || 
                         ['Skills not specified'];
       
-      // ✅ REAL PROPOSAL COUNT
-      const realProposals = node.totalApplicants || 0;
-      
-      // ✅ REAL POSTED DATE
+      // Date
       const postedDate = node.createdDateTime || node.publishedDateTime;
       const formattedDate = postedDate ? 
         new Date(postedDate).toLocaleDateString('en-US', {
@@ -142,13 +110,9 @@ async function fetchUpworkJobs(accessToken: string) {
         }) : 
         'Recently';
       
-      // ✅ REAL CATEGORY
+      // Category
       const category = node.category || 'General';
       const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase());
-      
-      // ❌❌❌ IMPORTANT: NO MOCK CLIENT DATA ❌❌❌
-      // Upwork public API client details nahi deti, isliye hum NEUTRAL placeholder use karenge
-      // "Upwork Client" ya "Client" - fake company names nahi
       
       return {
         id: node.id,
@@ -158,42 +122,177 @@ async function fetchUpworkJobs(accessToken: string) {
         postedDate: formattedDate,
         // ✅ NEUTRAL CLIENT DATA - NO FAKE NAMES
         client: {
-          name: 'Upwork Client', // Neutral placeholder
-          rating: 0, // Default 0 (not available)
-          country: 'Not specified', // Default (not available)
-          totalSpent: 0, // Default (not available)
-          totalHires: 0  // Default (not available)
+          name: 'Upwork Client',
+          rating: 0,
+          country: 'Not specified',
+          totalSpent: 0,
+          totalHires: 0
         },
         skills: realSkills.slice(0, 5),
-        proposals: realProposals,
-        verified: true, // Default assumption
+        proposals: node.totalApplicants || 0,
+        verified: true,
         category: cleanedCategory,
         jobType: node.engagement || node.durationLabel || 'Not specified',
         experienceLevel: node.experienceLevel || 'Not specified',
         source: 'upwork',
         isRealJob: true,
-        // Debug info for verification
         _debug: {
           budgetRaw: node.amount?.rawValue,
-          skillsCount: realSkills.length,
-          hasDescription: !!node.description
+          skillsCount: realSkills.length
         }
       };
     });
     
-    console.log(`✅ Formatted ${jobs.length} jobs with REAL data (no mock client info)`);
+    console.log(`✅ Formatted ${jobs.length} REAL jobs (Target: 100+)`);
     
-    // Verify no mock client names
-    const clientNames = jobs.map((j: { client: { name: any } }) => j.client.name);
-    const uniqueClientNames = [...new Set(clientNames)];
-    console.log('🔍 Client names in response:', uniqueClientNames);
+    // If less than 100, try pagination
+    if (jobs.length < 100 && data.data?.marketplaceJobPostingsSearch?.pageInfo?.hasNextPage) {
+      console.log('🔄 Less than 100 jobs, implementing pagination...');
+      const moreJobs = await fetchMoreJobs(accessToken, data.data.marketplaceJobPostingsSearch.pageInfo.endCursor);
+      jobs.push(...moreJobs);
+    }
     
-    return { success: true, jobs: jobs, error: null };
+    return { 
+      success: true, 
+      jobs: jobs.slice(0, 100), // Max 100 return karo
+      total: jobs.length,
+      error: null 
+    };
     
   } catch (error: any) {
     console.error('Fetch error:', error.message);
     return { success: false, error: error.message, jobs: [] };
   }
+}
+
+// ✅ Helper function: Agar 100 fail ho to choti limit try karo
+async function trySmallerLimit(accessToken: string) {
+  console.log('🔄 Trying with smaller limit (50)...');
+  
+  const smallerQuery = {
+    query: `
+      query GetMarketplaceJobs {
+        marketplaceJobPostingsSearch(first: 50) {  // 50 try karo
+          edges {
+            node {
+              id
+              title
+              description
+              amount { rawValue currency displayValue }
+              skills { name }
+              totalApplicants
+              category
+              createdDateTime
+            }
+          }
+        }
+      }
+    `
+  };
+  
+  try {
+    const response = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(smallerQuery)
+    });
+    
+    const data = await response.json();
+    const edges = data.data?.marketplaceJobPostingsSearch?.edges || [];
+    
+    console.log(`✅ Found ${edges.length} jobs with limit 50`);
+    
+    // Format jobs (simplified for smaller query)
+    const jobs = edges.map((edge: any) => ({
+      id: edge.node.id,
+      title: edge.node.title || 'Job Title',
+      description: edge.node.description || 'Job Description',
+      budget: edge.node.amount?.displayValue || '$0.00',
+      postedDate: 'Recently',
+      client: { name: 'Upwork Client', rating: 0, country: 'Not specified', totalSpent: 0, totalHires: 0 },
+      skills: edge.node.skills?.map((s: any) => s.name).slice(0, 3) || [],
+      proposals: edge.node.totalApplicants || 0,
+      verified: true,
+      category: 'General',
+      source: 'upwork',
+      isRealJob: true
+    }));
+    
+    return { success: true, jobs: jobs, error: null };
+    
+  } catch (error: any) {
+    return { success: false, error: 'Failed with smaller limit too', jobs: [] };
+  }
+}
+
+// ✅ Pagination ke liye extra jobs fetch karo
+async function fetchMoreJobs(accessToken: string, cursor: string) {
+  try {
+    const paginationQuery = {
+      query: `
+        query GetMoreJobs {
+          marketplaceJobPostingsSearch(first: 50, after: "${cursor}") {
+            edges {
+              node {
+                id
+                title
+                description
+                amount { displayValue }
+                skills { name }
+              }
+            }
+          }
+        }
+      `
+    };
+    
+    const response = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(paginationQuery)
+    });
+    
+    const data = await response.json();
+    const edges = data.data?.marketplaceJobPostingsSearch?.edges || [];
+    
+    return edges.map((edge: any) => ({
+      id: edge.node.id,
+      title: edge.node.title || 'Job Title',
+      description: edge.node.description || 'Job Description',
+      budget: edge.node.amount?.displayValue || '$0.00',
+      postedDate: 'Recently',
+      client: { name: 'Upwork Client', rating: 0, country: 'Not specified', totalSpent: 0, totalHires: 0 },
+      skills: edge.node.skills?.map((s: any) => s.name).slice(0, 3) || [],
+      proposals: 0,
+      verified: true,
+      category: 'General',
+      source: 'upwork',
+      isRealJob: true
+    }));
+    
+  } catch (error) {
+    return [];
+  }
+}
+
+// Helper functions for formatting
+function formatCurrency(value: number, currency: string): string {
+  const symbols: { [key: string]: string } = { 'USD': '$', 'EUR': '€', 'GBP': '£' };
+  const symbol = symbols[currency] || currency + ' ';
+  return `${symbol}${value.toFixed(2)}`;
+}
+
+function formatHourlyRate(min: number, max: number, currency: string): string {
+  const symbols: { [key: string]: string } = { 'USD': '$', 'EUR': '€', 'GBP': '£' };
+  const symbol = symbols[currency] || currency + ' ';
+  if (min === max || max === 0) return `${symbol}${min.toFixed(2)}/hr`;
+  return `${symbol}${min.toFixed(2)}-${max.toFixed(2)}/hr`;
 }
 
 export async function GET() {
