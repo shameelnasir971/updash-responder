@@ -61,18 +61,18 @@ export default function Dashboard() {
     checkAuth()
   }, [])
 
-  useEffect(() => {
-    if (!autoRefresh || !upworkConnected) return
-    
+ useEffect(() => {
+  // Auto-refresh jobs every 5 minutes
+  if (autoRefresh && upworkConnected && !searchTerm) {
     const interval = setInterval(() => {
       console.log('🔄 Auto-refreshing jobs...')
-      loadJobs(searchTerm, false, true)
-      setRefreshCount(prev => prev + 1)
+      loadJobs(searchTerm, true, true) // Force refresh in background
       setLastRefreshTime(new Date())
-    }, 3 * 60 * 1000) // 3 minutes
+    }, 5 * 60 * 1000) // 5 minutes
     
     return () => clearInterval(interval)
-  }, [autoRefresh, upworkConnected, searchTerm])
+  }
+}, [autoRefresh, upworkConnected, searchTerm])
 
   const checkAuth = async () => {
     try {
@@ -94,83 +94,57 @@ export default function Dashboard() {
 
   // ✅ IMPROVED: Load jobs with pagination
   const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false) => {
-    if (!background) setJobsLoading(true)
-    setConnectionError('')
+  if (!background) setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading REAL jobs...')
     
-    try {
-      console.log('🔄 Loading BULK jobs...', 
-        search ? `Search: "${search}"` : '', 
-        forceRefresh ? '(Force Refresh)' : ''
-      )
-      
-      const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}`
-      
-      const response = await fetch(url)
-      
-      if (response.status === 401) {
-        setConnectionError('Session expired. Please login again.')
-        window.location.href = '/auth/login'
-        return
-      }
-      
-      const data = await response.json()
-      console.log('📊 Jobs Data:', {
-        success: data.success,
-        count: data.jobs?.length,
-        totalUnique: data.totalUnique,
-        message: data.message,
-        cached: data.cached || false,
-        batchesFetched: data.batchesFetched
-      })
-
-      if (data.success) {
-        // If it's a background refresh, only update if we have more jobs
-        if (background && data.jobs?.length <= jobs.length) {
-          console.log('No new jobs in background refresh')
-          return
-        }
-        
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        
-        if (data.jobs?.length === 0) {
-          setConnectionError(search 
-            ? `No jobs found for "${search}". Try different keywords.`
-            : 'No jobs found. Upwork API might be limiting requests. Try refreshing.'
-          )
-        } else if (data.jobs?.length > 0) {
-          const message = data.cached 
-            ? `${data.message} (cached)`
-            : data.message
-          
-          setConnectionError(message)
-          
-          // Auto-clear success messages
-          if (!background && !forceRefresh) {
-            setTimeout(() => {
-              if (connectionError.includes('✅')) {
-                setConnectionError('')
-              }
-            }, 4000)
-          }
-        }
-        
-        // Check if we have more jobs available
-        setHasMoreJobs(data.totalUnique > data.jobs?.length)
-        
-      } else {
-        setConnectionError(data.message || 'Failed to load jobs')
-        setJobs([])
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Load jobs error:', error)
-      setConnectionError('Network error. Please check connection.')
-      setJobs([])
-    } finally {
-      if (!background) setJobsLoading(false)
+    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}limit=100`
+    
+    const response = await fetch(url)
+    
+    if (response.status === 401) {
+      setConnectionError('Session expired. Please login again.')
+      window.location.href = '/auth/login'
+      return
     }
-  }, [connectionError, jobs.length])
+    
+    const data = await response.json()
+    console.log('📊 Jobs Data:', {
+      success: data.success,
+      count: data.jobs?.length,
+      message: data.message
+    })
+
+    if (data.success) {
+      // ALWAYS set jobs - don't check for background refresh
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
+      
+      if (data.jobs?.length === 0) {
+        setConnectionError('No jobs found. Try different keywords or refresh.')
+      } else if (data.jobs?.length > 0) {
+        setConnectionError(`✅ Success! Loaded ${data.jobs.length} real jobs from Upwork!`)
+        
+        // Auto-clear success message after 3 seconds
+        setTimeout(() => {
+          setConnectionError('')
+        }, 3000)
+      }
+    } else {
+      setConnectionError(data.message || 'Failed to load jobs')
+      setJobs([])
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Network error. Please check connection.')
+    setJobs([])
+  } finally {
+    if (!background) setJobsLoading(false)
+  }
+}, [])
 
   // ✅ NEW: Load more jobs
   const loadMoreJobs = async () => {
