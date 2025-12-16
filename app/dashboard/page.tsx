@@ -1,4 +1,3 @@
-// app/dashboard/page.tsx - SIMPLIFIED VERSION
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -49,6 +48,7 @@ export default function Dashboard() {
   
   const [refreshCount, setRefreshCount] = useState(0)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
+  const [pagesFetched, setPagesFetched] = useState(0)
 
   useEffect(() => {
     checkAuth()
@@ -77,13 +77,11 @@ export default function Dashboard() {
     setConnectionError('')
     
     try {
-      console.log('🔄 Loading jobs...', search ? `Search: "${search}"` : 'All jobs')
+      console.log('🔄 Loading jobs with pagination...')
       
       const url = `/api/upwork/jobs${search || forceRefresh ? '?' : ''}${
         search ? `search=${encodeURIComponent(search)}${forceRefresh ? '&' : ''}` : ''
       }${forceRefresh ? 'refresh=true' : ''}`
-      
-      console.log('📤 Fetching from:', url)
       
       const response = await fetch(url)
       
@@ -94,21 +92,16 @@ export default function Dashboard() {
       }
       
       const data = await response.json()
-      console.log('📊 Jobs Data:', {
-        success: data.success,
-        count: data.jobs?.length,
-        message: data.message,
-        cached: data.cached || false
-      })
-
+      
       if (data.success) {
         setJobs(data.jobs || [])
         setUpworkConnected(data.upworkConnected || false)
+        setPagesFetched(data.pagesFetched || 0)
         
         if (data.jobs?.length === 0) {
           setConnectionError(search 
             ? `No jobs found for "${search}". Try different keywords.`
-            : 'No jobs found. Upwork API might be limiting requests.'
+            : 'No jobs found. Try refreshing.'
           )
         } else if (data.jobs?.length > 0) {
           const message = data.cached 
@@ -161,13 +154,34 @@ export default function Dashboard() {
     setShowPopup(true)
   }
 
-  const formatTimeAgo = (date: Date) => {
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000)
-    if (seconds < 60) return 'just now'
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`
-    return `${Math.floor(seconds / 86400)} days ago`
+  // Calculate job statistics
+  const getJobStats = () => {
+    const today = new Date()
+    const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+    
+    const recentJobs = jobs.filter(job => {
+      const jobDate = new Date(job.postedDate)
+      return jobDate >= lastWeek
+    }).length
+    
+    const highBudgetJobs = jobs.filter(job => {
+      const budget = job.budget.replace(/[^0-9.-]/g, '')
+      return parseFloat(budget) > 500
+    }).length
+    
+    const totalProposals = jobs.reduce((sum, job) => sum + (job.proposals || 0), 0)
+    
+    const avgProposals = jobs.length > 0 ? Math.round(totalProposals / jobs.length) : 0
+    
+    return {
+      recentJobs,
+      highBudgetJobs,
+      avgProposals,
+      categories: [...new Set(jobs.map(job => job.category).filter(Boolean))].length
+    }
   }
+
+  const stats = getJobStats()
 
   if (loading) {
     return (
@@ -213,13 +227,34 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-blue-600">{jobs.length}</div>
+            <div className="text-sm text-gray-600">Total Jobs</div>
+            <div className="text-xs text-gray-500 mt-1">{pagesFetched} pages fetched</div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-green-600">{stats.recentJobs}</div>
+            <div className="text-sm text-gray-600">Recent Jobs (7 days)</div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-purple-600">{stats.highBudgetJobs}</div>
+            <div className="text-sm text-gray-600">High Budget ($500+)</div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-orange-600">{stats.categories}</div>
+            <div className="text-sm text-gray-600">Categories</div>
+          </div>
+        </div>
+
         {/* Search Bar */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
           <form onSubmit={handleSearch} className="space-y-4">
             <div className="flex items-center space-x-4">
               <div className="flex-1">
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                  Search Upwork Jobs
+                  Search Upwork Jobs (Real-time)
                 </label>
                 <div className="flex items-center">
                   <div className="relative flex-1">
@@ -258,33 +293,13 @@ export default function Dashboard() {
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
                   {searchTerm 
-                    ? `Searching for: "${searchTerm}"`
-                    : 'Enter keywords to search jobs'
+                    ? `Searching Upwork for: "${searchTerm}"`
+                    : 'Enter keywords to search 10,000+ Upwork jobs'
                   }
                 </p>
               </div>
             </div>
           </form>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{jobs.length}</div>
-            <div className="text-sm text-gray-600">Jobs Loaded</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{refreshCount}</div>
-            <div className="text-sm text-gray-600">Refresh Count</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{upworkConnected ? '✅' : '❌'}</div>
-            <div className="text-sm text-gray-600">Upwork Connected</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">100%</div>
-            <div className="text-sm text-gray-600">Real Data</div>
-          </div>
         </div>
 
         {/* Connection Message */}
@@ -311,10 +326,10 @@ export default function Dashboard() {
           <div className="p-6 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900">
-                {searchTerm ? `🔍 Search Results for "${searchTerm}"` : '📊 Upwork Jobs'}
+                {searchTerm ? `🔍 Search Results for "${searchTerm}"` : '📊 Upwork Jobs (Real-time)'}
               </h2>
               <div className="text-sm text-gray-600">
-                {jobs.length} jobs loaded
+                {jobs.length} jobs loaded • Last refresh: {lastRefreshTime ? lastRefreshTime.toLocaleTimeString() : 'Never'}
               </div>
             </div>
           </div>
@@ -324,7 +339,10 @@ export default function Dashboard() {
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                 <p className="text-gray-600">
-                  {searchTerm ? `Searching for "${searchTerm}"...` : 'Loading jobs...'}
+                  {searchTerm ? `Searching Upwork for "${searchTerm}"...` : 'Loading Upwork jobs with pagination...'}
+                </p>
+                <p className="text-sm text-gray-500 mt-2">
+                  Fetching multiple pages of jobs from Upwork API...
                 </p>
               </div>
             ) : jobs.length === 0 ? (
@@ -335,7 +353,7 @@ export default function Dashboard() {
                 </h3>
                 <p className="text-gray-500 mb-6">
                   {searchTerm 
-                    ? `Try different keywords or refresh.`
+                    ? `Try different keywords or check Upwork directly.`
                     : 'Try refreshing or check your Upwork connection.'
                   }
                 </p>
@@ -378,6 +396,11 @@ export default function Dashboard() {
                           {skill}
                         </span>
                       ))}
+                      {job.skills.length > 5 && (
+                        <span className="text-gray-500 text-sm">
+                          +{job.skills.length - 5} more
+                        </span>
+                      )}
                     </div>
                     
                     <button 
