@@ -99,13 +99,13 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs...', 
+    console.log('🔄 Loading PAGINATED jobs...', 
       search ? `Search: "${search}"` : 'ALL JOBS',
       `Page: ${pageNumber}`,
       forceRefresh ? '(Force Refresh)' : ''
     )
     
-    // Build URL with ALL parameters
+    // ✅ Use paginated endpoint with limit 20
     const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}page=${pageNumber}&limit=20`
     
     const response = await fetch(url)
@@ -124,7 +124,8 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
       page: data.page,
       totalPages: data.totalPages,
       message: data.message,
-      cached: data.cached || false
+      cached: data.cached || false,
+      pagesFetched: data.pagesFetched
     })
 
     if (data.success) {
