@@ -81,22 +81,24 @@ const loadJobs = async (search = '', forceRefresh = false) => {
   try {
     console.log('🔄 Loading jobs...')
     
-    // ✅ SIMPLE URL - NO CACHE PARAMS
     const url = `/api/upwork/jobs${search ? `?search=${encodeURIComponent(search)}` : ''}`
     
     const response = await fetch(url)
-    
-    if (response.status === 401) {
-      window.location.href = '/auth/login'
-      return
-    }
-    
     const data = await response.json()
-    console.log('API Response:', data)
+    
+    console.log('📊 API Response:', data)
     
     if (data.success) {
       setJobs(data.jobs || [])
       setUpworkConnected(data.upworkConnected || false)
+      
+      // Handle token refresh case
+      if (data.tokenRefreshed) {
+        setConnectionError('✅ Token refreshed, fetching jobs...')
+        // Auto-refresh after token refresh
+        setTimeout(() => loadJobs(search, true), 1000)
+        return
+      }
       
       if (data.jobs?.length === 0) {
         setConnectionError(data.message || 'No jobs found')
@@ -104,13 +106,18 @@ const loadJobs = async (search = '', forceRefresh = false) => {
         setConnectionError(data.message || '')
       }
     } else {
-      setConnectionError(data.message || 'Failed to load')
+      // Check if we need to reconnect
+      if (data.action === 'reconnect' || data.action === 'connect_upwork') {
+        setConnectionError(`❌ ${data.message} Click "Connect Upwork" in sidebar.`)
+      } else {
+        setConnectionError(data.message || 'Failed to load jobs')
+      }
       setJobs([])
     }
     
   } catch (error: any) {
     console.error('Load error:', error)
-    setConnectionError('Network error. Check console.')
+    setConnectionError('Network error. Please try again.')
     setJobs([])
   } finally {
     setJobsLoading(false)
