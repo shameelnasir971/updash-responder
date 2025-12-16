@@ -72,59 +72,50 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async (search = '', forceRefresh = false) => {
-    setJobsLoading(true)
-    setConnectionError('')
+// In your dashboard page, change the loadJobs function:
+
+const loadJobs = async (search = '', forceRefresh = false) => {
+  setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading jobs...')
     
-    try {
-      console.log('🔄 Loading jobs with pagination...')
-      
-      const url = `/api/upwork/jobs${search || forceRefresh ? '?' : ''}${
-        search ? `search=${encodeURIComponent(search)}${forceRefresh ? '&' : ''}` : ''
-      }${forceRefresh ? 'refresh=true' : ''}`
-      
-      const response = await fetch(url)
-      
-      if (response.status === 401) {
-        setConnectionError('Session expired. Please login again.')
-        window.location.href = '/auth/login'
-        return
-      }
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        setPagesFetched(data.pagesFetched || 0)
-        
-        if (data.jobs?.length === 0) {
-          setConnectionError(search 
-            ? `No jobs found for "${search}". Try different keywords.`
-            : 'No jobs found. Try refreshing.'
-          )
-        } else if (data.jobs?.length > 0) {
-          const message = data.cached 
-            ? `${data.message} (cached)`
-            : data.message
-          
-          setConnectionError(message)
-        }
-        
-      } else {
-        setConnectionError(data.message || 'Failed to load jobs')
-        setJobs([])
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Load jobs error:', error)
-      setConnectionError('Network error. Please check connection.')
-      setJobs([])
-    } finally {
-      setJobsLoading(false)
-      setLastRefreshTime(new Date())
+    // ✅ SIMPLE URL - NO CACHE PARAMS
+    const url = `/api/upwork/jobs${search ? `?search=${encodeURIComponent(search)}` : ''}`
+    
+    const response = await fetch(url)
+    
+    if (response.status === 401) {
+      window.location.href = '/auth/login'
+      return
     }
+    
+    const data = await response.json()
+    console.log('API Response:', data)
+    
+    if (data.success) {
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
+      
+      if (data.jobs?.length === 0) {
+        setConnectionError(data.message || 'No jobs found')
+      } else {
+        setConnectionError(data.message || '')
+      }
+    } else {
+      setConnectionError(data.message || 'Failed to load')
+      setJobs([])
+    }
+    
+  } catch (error: any) {
+    console.error('Load error:', error)
+    setConnectionError('Network error. Check console.')
+    setJobs([])
+  } finally {
+    setJobsLoading(false)
   }
+}
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
