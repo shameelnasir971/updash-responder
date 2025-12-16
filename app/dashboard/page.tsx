@@ -94,18 +94,21 @@ export default function Dashboard() {
   }
 
   // ✅ IMPROVED: Load jobs with pagination
+// ✅ UPDATED: loadJobs function with page parameter
 const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false, pageNumber = 1) => {
   if (!background) setJobsLoading(true)
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs... Page:', pageNumber)
+    console.log('🔄 Loading jobs...', 
+      search ? `Search: "${search}"` : 'ALL JOBS',
+      `Page: ${pageNumber}`,
+      forceRefresh ? '(Force Refresh)' : ''
+    )
     
-    // ✅ Use bulk mode for more jobs when not searching
-    const useBulkMode = !search && pageNumber === 1
+    // ✅ Use bulk mode for more jobs, simple mode for search
+    const useBulkMode = !search // Use bulk mode only for all jobs, not for search
     const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}${useBulkMode ? 'bulk=true&' : ''}page=${pageNumber}&limit=20`
-    
-    console.log('📡 URL:', url)
     
     const response = await fetch(url)
     
@@ -116,44 +119,48 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
     }
     
     const data = await response.json()
-    console.log('📊 Response:', {
+    console.log('📊 Jobs Data:', {
       success: data.success,
       count: data.jobs?.length,
-      allCount: data.allJobsCount,
+      allJobsCount: data.allJobsCount,
       page: data.page,
-      message: data.message
+      totalPages: data.totalPages,
+      message: data.message,
+      cached: data.cached || false
     })
 
     if (data.success) {
       setJobs(data.jobs || [])
-      setUpworkConnected(true)
+      setUpworkConnected(data.upworkConnected || false)
       setPage(data.page || pageNumber)
       setHasMoreJobs(data.hasMore || false)
       
       if (data.jobs?.length === 0) {
         setConnectionError(search 
-          ? `No jobs found for "${search}"`
-          : 'No jobs available right now'
+          ? `No jobs found for "${search}". Try different keywords.`
+          : 'No jobs found. Try refreshing.'
         )
-      } else {
-        const msg = data.allJobsCount > 20 
-          ? `✅ ${data.jobs.length} jobs (${data.allJobsCount} total available)`
-          : `✅ ${data.jobs.length} jobs loaded`
-        setConnectionError(msg)
+      } else if (data.jobs?.length > 0) {
+        const totalMsg = data.allJobsCount > data.jobs?.length 
+          ? ` (${data.allJobsCount} total available)` 
+          : ''
+        
+        setConnectionError(`${data.message}${totalMsg}`)
       }
+      
     } else {
       setConnectionError(data.message || 'Failed to load jobs')
       setJobs([])
     }
     
   } catch (error: any) {
-    console.error('Load error:', error)
-    setConnectionError('Network error')
+    console.error('❌ Load jobs error:', error)
+    setConnectionError('Network error. Please check connection.')
     setJobs([])
   } finally {
     if (!background) setJobsLoading(false)
   }
-}, []) // ✅ Add page to dependencies
+}, [connectionError, jobs.length]) // ✅ Add page to dependencies
 
   // ✅ NEW: Load more jobs
   const loadMoreJobs = async () => {
@@ -265,33 +272,43 @@ const handleForceRefresh = () => {
               </div>
             </div>
             
-            <div className="flex gap-3">
-  <button 
-    onClick={() => loadJobs(searchTerm, true, false, 1)}
-    disabled={jobsLoading}
-    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-  >
-    🔄 Refresh Jobs
-  </button>
-  
-  <button 
-    onClick={() => {
-      const url = `/api/upwork/jobs?bulk=true&refresh=true&page=1&limit=50`
-      fetch(url)
-        .then(r => r.json())
-        .then(data => {
-          if (data.success) {
-            setJobs(data.jobs || [])
-            setConnectionError(`✅ Loaded ${data.jobs?.length} jobs in bulk mode`)
-            setPage(1)
-          }
-        })
-    }}
-    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
-  >
-    📥 Load 50+ Jobs
-  </button>
-</div>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                <label className="flex items-center cursor-pointer">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={autoRefresh}
+                      onChange={(e) => setAutoRefresh(e.target.checked)}
+                    />
+                    <div className={`block w-14 h-8 rounded-full ${autoRefresh ? 'bg-green-600' : 'bg-gray-300'}`}></div>
+                    <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition transform ${autoRefresh ? 'translate-x-6' : ''}`}></div>
+                  </div>
+                  <div className="ml-3 text-gray-700 font-medium text-sm">
+                    Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
+                  </div>
+                </label>
+              </div>
+              
+              <button 
+                onClick={handleForceRefresh}
+                disabled={jobsLoading}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
+              >
+                {jobsLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Refreshing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🔄</span>
+                    <span>Refresh All Jobs</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
