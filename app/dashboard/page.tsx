@@ -74,70 +74,46 @@ export default function Dashboard() {
 
 // In your dashboard page, change the loadJobs function:
 
-// In your loadJobs function, REPLACE with this:
-
 const loadJobs = async (search = '', forceRefresh = false) => {
   setJobsLoading(true)
   setConnectionError('')
   
   try {
-    console.log('🔄 Loading jobs from Upwork...')
+    console.log('🔄 Loading jobs...')
     
-    // ✅ SIMPLE URL - NO COMPLEX PARAMS
+    // ✅ SIMPLE URL - NO CACHE PARAMS
     const url = `/api/upwork/jobs${search ? `?search=${encodeURIComponent(search)}` : ''}`
     
-    console.log('📤 Fetching:', url)
-    
-    const response = await fetch(url, {
-      // ✅ ADD TIMEOUT
-      signal: AbortSignal.timeout(30000)
-    })
-    
-    console.log('📥 Response status:', response.status)
+    const response = await fetch(url)
     
     if (response.status === 401) {
-      setConnectionError('Session expired. Please login again.')
       window.location.href = '/auth/login'
       return
     }
     
     const data = await response.json()
-    console.log('📊 API Response:', {
-      success: data.success,
-      message: data.message,
-      jobCount: data.jobs?.length
-    })
+    console.log('API Response:', data)
     
     if (data.success) {
       setJobs(data.jobs || [])
       setUpworkConnected(data.upworkConnected || false)
       
-      // Handle messages
-      if (data.tokenError) {
-        setConnectionError('⚠️ Upwork token issue. Please reconnect your Upwork account.')
-      } else if (data.jobs?.length === 0) {
-        setConnectionError(data.message || 'No jobs found at the moment.')
+      if (data.jobs?.length === 0) {
+        setConnectionError(data.message || 'No jobs found')
       } else {
         setConnectionError(data.message || '')
       }
     } else {
-      setConnectionError(data.message || 'Failed to load jobs')
+      setConnectionError(data.message || 'Failed to load')
       setJobs([])
     }
     
   } catch (error: any) {
-    console.error('❌ Load jobs error:', error)
-    
-    if (error.name === 'AbortError') {
-      setConnectionError('Request timeout. Try again.')
-    } else {
-      setConnectionError('Network error. Please check connection.')
-    }
-    
+    console.error('Load error:', error)
+    setConnectionError('Network error. Check console.')
     setJobs([])
   } finally {
     setJobsLoading(false)
-    setLastRefreshTime(new Date())
   }
 }
 
