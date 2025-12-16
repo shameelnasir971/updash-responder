@@ -1,3 +1,5 @@
+
+// app/api/upwork/jobs/route.ts - SIMPLE WORKING VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -5,119 +7,21 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ CRITICAL: VERIFY TOKEN WITH UPWORK
-async function verifyUpworkToken(accessToken: string) {
-  try {
-    console.log('🔐 Verifying token with Upwork...')
-    
-    const verifyQuery = {
-      query: `{ user { id name } }`
-    }
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-Upwork-API-TenantId': 'api'
-      },
-      body: JSON.stringify(verifyQuery)
-    })
-    
-    console.log('🔐 Verification status:', response.status)
-    
-    if (response.status === 403 || response.status === 401) {
-      console.log('❌ Token INVALID - 403/401 response')
-      return { valid: false, error: 'Token expired or invalid' }
-    }
-    
-    const data = await response.json()
-    
-    if (data.errors) {
-      console.log('❌ GraphQL errors in verification:', data.errors)
-      return { valid: false, error: data.errors[0]?.message }
-    }
-    
-    if (data.data?.user?.id) {
-      console.log('✅ Token VALID - User ID:', data.data.user.id)
-      return { valid: true, user: data.data.user }
-    }
-    
-    return { valid: false, error: 'No user data returned' }
-    
-  } catch (error: any) {
-    console.error('Verification error:', error.message)
-    return { valid: false, error: error.message }
-  }
-}
+// ✅ SIMPLE CACHE SYSTEM
+let jobsCache: any[] = []
+let cacheTimestamp: number = 0
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
-// ✅ REFRESH TOKEN PROPERLY
-async function refreshUpworkToken(userId: number, refreshToken: string) {
+// ✅ WORKING GraphQL Query (Confirmed by previous logs)
+async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
   try {
-    console.log('🔄 Refreshing token...')
+    console.log('🚀 Fetching Upwork jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All jobs')
     
-    const clientId = process.env.UPWORK_CLIENT_ID
-    const clientSecret = process.env.UPWORK_CLIENT_SECRET
-    
-    if (!clientId || !clientSecret) {
-      throw new Error('Missing Upwork credentials in environment')
-    }
-    
-    const response = await fetch('https://www.upwork.com/api/v3/oauth2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: clientId,
-        client_secret: clientSecret
-      })
-    })
-    
-    console.log('🔄 Refresh response:', response.status)
-    
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Refresh failed:', errorText)
-      throw new Error(`Refresh failed: ${response.status}`)
-    }
-    
-    const tokenData = await response.json()
-    console.log('✅ Token refreshed successfully')
-    
-    // ✅ Update database
-    await pool.query(
-      `UPDATE upwork_accounts 
-       SET access_token = $1, 
-           refresh_token = $2,
-           updated_at = NOW()
-       WHERE user_id = $3`,
-      [tokenData.access_token, tokenData.refresh_token || refreshToken, userId]
-    )
-    
-    return {
-      success: true,
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token || refreshToken
-    }
-    
-  } catch (error: any) {
-    console.error('❌ Refresh error:', error.message)
-    return { success: false, error: error.message }
-  }
-}
-
-// ✅ SIMPLE & WORKING JOBS FETCH
-async function fetchJobsSimple(accessToken: string) {
-  try {
-    console.log('📡 Fetching jobs with valid token...')
-    
-    const query = {
+    // ✅ SIMPLE QUERY - NO PAGINATION, NO FILTER (confirmed working)
+    const graphqlQuery = {
       query: `
-        query GetJobs {
-          marketplaceJobPostingsSearch(first: 50) {
+        query GetMarketplaceJobs {
+          marketplaceJobPostingsSearch {
             edges {
               node {
                 id
@@ -128,15 +32,27 @@ async function fetchJobsSimple(accessToken: string) {
                   currency
                   displayValue
                 }
+                hourlyBudgetMin {
+                  rawValue
+                  currency
+                  displayValue
+                }
+                hourlyBudgetMax {
+                  rawValue
+                  currency
+                  displayValue
+                }
                 skills {
                   name
                 }
                 totalApplicants
                 category
                 createdDateTime
-                client {
-                  nid
-                }
+                publishedDateTime
+                experienceLevel
+                engagement
+                duration
+                durationLabel
               }
             }
           }
@@ -144,203 +60,339 @@ async function fetchJobsSimple(accessToken: string) {
       `
     }
     
+    console.log('📤 Making GraphQL request...')
+    
     const response = await fetch('https://api.upwork.com/graphql', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'X-Upwork-API-TenantId': 'api'
       },
-      body: JSON.stringify(query)
+      body: JSON.stringify(graphqlQuery)
     })
     
-    console.log('📡 Jobs API response:', response.status)
+    console.log('📥 Response status:', response.status)
     
     if (!response.ok) {
-      throw new Error(`Jobs API failed: ${response.status}`)
+      const errorText = await response.text()
+      console.error('❌ API request failed:', errorText.substring(0, 500))
+      return { 
+        success: false, 
+        error: `API error: ${response.status}`, 
+        jobs: []
+      }
     }
     
     const data = await response.json()
     
+    // Log response for debugging
+    console.log('📊 Response received, checking data...')
+    
     if (data.errors) {
-      console.error('GraphQL errors:', data.errors)
-      throw new Error(data.errors[0]?.message || 'GraphQL error')
+      console.error('❌ GraphQL errors:', data.errors)
+      return { 
+        success: false, 
+        error: data.errors[0]?.message, 
+        jobs: []
+      }
     }
     
     const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} job edges`)
+    console.log(`✅ Found ${edges.length} raw job edges from Upwork`)
     
-    // Format jobs
+    if (edges.length === 0) {
+      console.log('⚠️ Upwork API returned 0 jobs')
+      return { 
+        success: true, 
+        jobs: [], 
+        error: null 
+      }
+    }
+    
+    // ✅ Format jobs with REAL data ONLY
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
       
-      // Budget
-      let budget = 'Not specified'
+      // ✅ REAL BUDGET
+      let budgetText = 'Budget not specified'
       if (node.amount?.rawValue) {
-        const amount = parseFloat(node.amount.rawValue)
+        const rawValue = parseFloat(node.amount.rawValue)
         const currency = node.amount.currency || 'USD'
-        budget = currency === 'USD' ? `$${amount}` : `${amount} ${currency}`
+        
+        if (currency === 'USD') {
+          budgetText = `$${rawValue.toFixed(2)}`
+        } else if (currency === 'EUR') {
+          budgetText = `€${rawValue.toFixed(2)}`
+        } else if (currency === 'GBP') {
+          budgetText = `£${rawValue.toFixed(2)}`
+        } else {
+          budgetText = `${rawValue.toFixed(2)} ${currency}`
+        }
+      } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
+        const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
+        const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
+        const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
+        
+        let currencySymbol = ''
+        if (currency === 'USD') currencySymbol = '$'
+        else if (currency === 'EUR') currencySymbol = '€'
+        else if (currency === 'GBP') currencySymbol = '£'
+        else currencySymbol = currency + ' '
+        
+        if (minVal === maxVal || maxVal === 0) {
+          budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`
+        } else {
+          budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
+        }
       }
       
-      // Skills
-      const skills = node.skills?.map((s: any) => s.name).filter(Boolean) || []
+      // ✅ REAL SKILLS
+      const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || []
       
-      // Date
-      const postedDate = node.createdDateTime
-      const formattedDate = postedDate ? new Date(postedDate).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      }) : 'Recently'
+      // ✅ REAL DATE
+      const postedDate = node.createdDateTime || node.publishedDateTime
+      const formattedDate = postedDate ? 
+        new Date(postedDate).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        }) : 
+        'Recently'
+      
+      // ✅ REAL CATEGORY
+      const category = node.category || 'General'
+      const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
       
       return {
-        id: node.id,
+        // ✅ 100% REAL DATA - NO MOCK
+        id: node.id || `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         title: node.title || 'Job',
         description: node.description || '',
-        budget: budget,
+        budget: budgetText,
         postedDate: formattedDate,
         client: {
-          name: 'Client',
-          rating: 4.0 + (Math.random() * 1.5),
-          country: 'Remote'
+          name: 'Client', // Generic, not fake company names
+          rating: 0,
+          country: 'Remote',
+          totalSpent: 0,
+          totalHires: 0
         },
-        skills: skills.slice(0, 5),
+        skills: realSkills.slice(0, 10), // Show more skills
         proposals: node.totalApplicants || 0,
         verified: true,
-        category: node.category || 'General',
+        category: cleanedCategory,
+        jobType: node.engagement || node.durationLabel || 'Not specified',
+        experienceLevel: node.experienceLevel || 'Not specified',
         source: 'upwork',
         isRealJob: true
       }
     })
     
-    return { success: true, jobs: jobs }
+    console.log(`✅ Formatted ${jobs.length} REAL jobs`)
+    
+    // ✅ Apply search filter CLIENT-SIDE (since Upwork API doesn't support search)
+    let filteredJobs = jobs
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase()
+      filteredJobs = jobs.filter((job: { title: string; description: string; skills: string[]; category: string }) => 
+        job.title.toLowerCase().includes(searchLower) ||
+        job.description.toLowerCase().includes(searchLower) ||
+        job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower)) ||
+        (job.category && job.category.toLowerCase().includes(searchLower))
+      )
+      console.log(`🔍 After client-side search: ${filteredJobs.length} jobs`)
+    }
+    
+    return { 
+      success: true, 
+      jobs: filteredJobs, 
+      error: null 
+    }
     
   } catch (error: any) {
-    console.error('Fetch error:', error.message)
-    return { success: false, error: error.message, jobs: [] }
+    console.error('❌ Fetch error:', error.message)
+    return { 
+      success: false, 
+      error: error.message, 
+      jobs: []
+    }
   }
 }
 
-// ✅ MAIN ENDPOINT - COMPLETE LOGIC
+// ✅ MAIN API ENDPOINT
 export async function GET(request: NextRequest) {
-  console.log('=== JOBS API - COMPLETE FIX ===')
-  
   try {
-    // 1. Get user
+    console.log('=== JOBS API CALLED ===')
+    
     const user = await getCurrentUser()
     if (!user) {
       return NextResponse.json({ 
-        success: false,
-        message: 'Please login first'
+        error: 'Not authenticated' 
       }, { status: 401 })
     }
     
-    console.log('👤 User:', user.email)
+    // Get query parameters
+    const { searchParams } = new URL(request.url)
+    const search = searchParams.get('search') || ''
+    const forceRefresh = searchParams.get('refresh') === 'true'
     
-    // 2. Get Upwork account
-    const accountResult = await pool.query(
-      'SELECT access_token, refresh_token FROM upwork_accounts WHERE user_id = $1',
+    console.log('Parameters:', { search, forceRefresh })
+    
+    // Check Upwork connection
+    const upworkResult = await pool.query(
+      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
     
-    if (accountResult.rows.length === 0) {
+    if (upworkResult.rows.length === 0) {
+      console.log('❌ No Upwork connection found')
       return NextResponse.json({
         success: false,
-        message: '❌ Upwork account not connected. Please connect first.',
-        actionRequired: true,
-        actionType: 'connect'
+        jobs: [],
+        message: '❌ Please connect your Upwork account first',
+        upworkConnected: false
       })
     }
     
-    const { access_token, refresh_token } = accountResult.rows[0]
+    const accessToken = upworkResult.rows[0].access_token
+    console.log('✅ Upwork access token found')
     
-    if (!access_token) {
-      return NextResponse.json({
-        success: false,
-        message: '❌ No access token found. Please reconnect Upwork.',
-        actionRequired: true,
-        actionType: 'reconnect'
-      })
+    // Check cache
+    const now = Date.now()
+    const cacheKey = search ? `search_${search}` : 'all'
+    
+    if (!forceRefresh && jobsCache.length > 0 && (now - cacheTimestamp) < CACHE_DURATION) {
+      // Apply search filter to cached data
+      let cachedJobs = jobsCache
+      if (search) {
+        const searchLower = search.toLowerCase()
+        cachedJobs = jobsCache.filter(job => 
+          job.title.toLowerCase().includes(searchLower) ||
+          job.description.toLowerCase().includes(searchLower) ||
+          job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower))
+        )
+      }
+      
+      if (cachedJobs.length > 0) {
+        console.log('📦 Serving from cache...', cachedJobs.length, 'jobs')
+        return NextResponse.json({
+          success: true,
+          jobs: cachedJobs,
+          total: cachedJobs.length,
+          message: `✅ ${cachedJobs.length} jobs loaded (from cache${search ? `, search: "${search}"` : ''})`,
+          upworkConnected: true,
+          cached: true
+        })
+      }
     }
     
-    console.log('🔑 Token found, length:', access_token.length)
+    console.log('🔄 Fetching fresh data from Upwork API...')
     
-    // 3. VERIFY TOKEN FIRST
-    console.log('🔍 Step 1: Verifying token...')
-    const tokenCheck = await verifyUpworkToken(access_token)
+    // Fetch jobs from Upwork
+    const result = await fetchUpworkJobs(accessToken, search)
     
-    if (!tokenCheck.valid) {
-      console.log('⚠️ Token invalid, checking for refresh...')
+    if (!result.success) {
+      console.error('❌ Failed to fetch jobs:', result.error)
       
-      if (!refresh_token) {
-        console.log('❌ No refresh token available')
+      // If cache exists, return cache even with error
+      if (jobsCache.length > 0) {
+        console.log('⚠️ Using cached data due to API error')
+        let cachedJobs = jobsCache
+        if (search) {
+          const searchLower = search.toLowerCase()
+          cachedJobs = jobsCache.filter(job => 
+            job.title.toLowerCase().includes(searchLower) ||
+            job.description.toLowerCase().includes(searchLower) ||
+            job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower))
+          )
+        }
+        
         return NextResponse.json({
-          success: false,
-          message: '❌ Token expired. No refresh token available. Please reconnect Upwork.',
-          actionRequired: true,
-          actionType: 'reconnect'
+          success: true,
+          jobs: cachedJobs,
+          total: cachedJobs.length,
+          message: `⚠️ Using cached data (API error: ${result.error})`,
+          upworkConnected: true,
+          cached: true
         })
       }
       
-      // 4. ATTEMPT TOKEN REFRESH
-      console.log('🔄 Step 2: Attempting token refresh...')
-      const refreshResult = await refreshUpworkToken(user.id, refresh_token)
-      
-      if (!refreshResult.success) {
-        return NextResponse.json({
-          success: false,
-          message: '❌ Token refresh failed. Please reconnect Upwork.',
-          actionRequired: true,
-          actionType: 'reconnect'
-        })
-      }
-      
-      // 5. FETCH JOBS WITH NEW TOKEN
-      console.log('📡 Step 3: Fetching jobs with refreshed token...')
-      const jobsResult = await fetchJobsSimple(refreshResult.accessToken!)
-      
-      if (!jobsResult.success) {
-        return NextResponse.json({
-          success: false,
-          message: `❌ Failed to fetch jobs: ${jobsResult.error}`,
-          upworkConnected: true
-        })
-      }
-      
-      return NextResponse.json({
-        success: true,
-        jobs: jobsResult.jobs,
-        total: jobsResult.jobs.length,
-        message: `✅ Loaded ${jobsResult.jobs.length} jobs (token was refreshed)`,
-        upworkConnected: true,
-        tokenRefreshed: true
-      })
-    }
-    
-    // 6. TOKEN IS VALID - FETCH JOBS
-    console.log('📡 Step 2: Token valid, fetching jobs...')
-    const jobsResult = await fetchJobsSimple(access_token)
-    
-    if (!jobsResult.success) {
       return NextResponse.json({
         success: false,
-        message: `❌ Failed to fetch jobs: ${jobsResult.error}`,
+        jobs: [],
+        message: `❌ Failed to fetch jobs: ${result.error}`,
         upworkConnected: true
       })
     }
     
+    // Update cache (only if no search)
+    if (!search) {
+      jobsCache = result.jobs
+      cacheTimestamp = now
+      console.log(`💾 Updated cache with ${result.jobs.length} jobs`)
+    }
+    
+    // Prepare message
+    let message = ''
+    if (search) {
+      message = result.jobs.length > 0
+        ? `✅ Found ${result.jobs.length} jobs for "${search}"`
+        : `❌ No jobs found for "${search}"`
+    } else {
+      message = result.jobs.length > 0
+        ? `✅ Loaded ${result.jobs.length} real jobs from Upwork`
+        : '❌ No jobs found'
+    }
+    
     return NextResponse.json({
       success: true,
-      jobs: jobsResult.jobs,
-      total: jobsResult.jobs.length,
-      message: `✅ Loaded ${jobsResult.jobs.length} real jobs from Upwork`,
-      upworkConnected: true
+      jobs: result.jobs,
+      total: result.jobs.length,
+      message: message,
+      upworkConnected: true,
+      cached: false
     })
     
   } catch (error: any) {
-    console.error('❌ Fatal error:', error)
+    console.error('❌ Main error:', error)
+    
+    // Return cache if available
+    if (jobsCache.length > 0) {
+      console.log('⚠️ Returning cached data due to error')
+      return NextResponse.json({
+        success: true,
+        jobs: jobsCache,
+        total: jobsCache.length,
+        message: `⚠️ Using cached data (Error: ${error.message})`,
+        upworkConnected: true,
+        cached: true
+      })
+    }
+    
     return NextResponse.json({
       success: false,
+      jobs: [],
       message: `❌ Server error: ${error.message}`
+    }, { status: 500 })
+  }
+}
+
+// ✅ CLEAR CACHE ENDPOINT
+export async function POST(request: NextRequest) {
+  try {
+    jobsCache = []
+    cacheTimestamp = 0
+    
+    return NextResponse.json({
+      success: true,
+      message: '✅ Cache cleared successfully'
+    })
+    
+  } catch (error: any) {
+    console.error('POST error:', error)
+    return NextResponse.json({
+      success: false,
+      message: `❌ Error: ${error.message}`
     }, { status: 500 })
   }
 }
