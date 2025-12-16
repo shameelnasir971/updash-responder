@@ -17,69 +17,46 @@ async function fetchBulkUpworkJobs(accessToken: string, searchTerm?: string, pag
     console.log(`🚀 BULK FETCH: ${searchTerm ? `Searching "${searchTerm}"` : 'All jobs'}, Page ${page}`)
     
     // GraphQL query with variables for pagination
-    const graphqlQuery = {
-      query: `
-        query GetMarketplaceJobs($first: Int, $after: String, $filter: MarketplaceJobPostingSearchFilter) {
-          marketplaceJobPostingsSearch(first: $first, after: $after, filter: $filter) {
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            totalCount
-            edges {
-              node {
-                id
-                title
-                description
-                amount {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                hourlyBudgetMin {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                hourlyBudgetMax {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                skills {
-                  name
-                }
-                totalApplicants
-                category
-                createdDateTime
-                publishedDateTime
-                experienceLevel
-                engagement
-                duration
-                durationLabel
-                # ✅ Client information if available
-                ... on MarketplaceJobPosting {
-                  client {
-                    id
-                    # Note: Upwork public API doesn't expose client names in search
-                  }
-                }
-              }
-            }
+  // Updated part in your route.ts
+const graphqlQuery = {
+  query: `
+    query GetMarketplaceJobs($first: Int, $after: String, $filter: MarketplaceJobPostingSearchFilter) {
+      marketplaceJobPostingsSearch(first: $first, after: $after, filter: $filter) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+        edges {
+          node {
+            id
+            title
+            description
+            amount { rawValue currency displayValue }
+            hourlyBudgetMin { rawValue currency displayValue }
+            hourlyBudgetMax { rawValue currency displayValue }
+            skills { name }
+            totalApplicants
+            category
+            createdDateTime
+            publishedDateTime
+            experienceLevel
+            engagement
+            duration
+            durationLabel
           }
         }
-      `,
-      variables: {
-        first: 50, // Max allowed by Upwork API
-        after: page > 1 ? await getCursorForPage(page) : null,
-        filter: searchTerm ? {
-          any: searchTerm
-          // OR use specific filters:
-          // keyword: searchTerm,
-          // category: ["Web Development", "Design", "Writing"] 
-        } : null
       }
     }
+  `,
+  variables: {
+    first: 100, // Increased from 50
+    after: null,
+    filter: searchTerm ? {
+      any: searchTerm
+    } : null
+  }
+}
     
     console.log('📤 Making GraphQL request with pagination...')
     
