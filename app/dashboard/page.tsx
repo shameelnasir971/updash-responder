@@ -61,19 +61,19 @@ export default function Dashboard() {
     checkAuth()
   }, [])
 
- useEffect(() => {
-  if (!autoRefresh || !upworkConnected) return
+// Auto-refresh jobs every 5 minutes
+// Auto-refresh jobs every 5 minutes
+useEffect(() => {
+  if (!upworkConnected) return
   
   const interval = setInterval(() => {
-    console.log('🔄 Auto-refreshing jobs...')
-    // ✅ Add page parameter
-    loadJobs(searchTerm, false, true, 1)
-    setRefreshCount(prev => prev + 1)
-    setLastRefreshTime(new Date())
-  }, 3 * 60 * 1000) // 3 minutes
+    fetch('/api/upwork/refresh').then(() => {
+      console.log('🔄 Auto-refresh triggered')
+    })
+  }, 5 * 60 * 1000)
   
   return () => clearInterval(interval)
-}, [autoRefresh, upworkConnected, searchTerm])
+}, [upworkConnected])
 
   const checkAuth = async () => {
     try {
@@ -94,7 +94,6 @@ export default function Dashboard() {
   }
 
   // ✅ IMPROVED: Load jobs with pagination
-// ✅ UPDATED: loadJobs function with page parameter
 const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false, pageNumber = 1) => {
   if (!background) setJobsLoading(true)
   setConnectionError('')
@@ -106,9 +105,8 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
       forceRefresh ? '(Force Refresh)' : ''
     )
     
-    // ✅ Use bulk mode for more jobs, simple mode for search
-    const useBulkMode = !search // Use bulk mode only for all jobs, not for search
-    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}${useBulkMode ? 'bulk=true&' : ''}page=${pageNumber}&limit=20`
+    // Build URL with ALL parameters
+    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}page=${pageNumber}&limit=20`
     
     const response = await fetch(url)
     
@@ -137,7 +135,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
       
       if (data.jobs?.length === 0) {
         setConnectionError(search 
-          ? `No jobs found for "${search}". Try different keywords.`
+          ? `No jobs found for "${search}"`
           : 'No jobs found. Try refreshing.'
         )
       } else if (data.jobs?.length > 0) {
@@ -145,7 +143,17 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
           ? ` (${data.allJobsCount} total available)` 
           : ''
         
-        setConnectionError(`${data.message}${totalMsg}`)
+        const cachedMsg = data.cached ? ' (cached)' : ''
+        setConnectionError(`${data.message}${totalMsg}${cachedMsg}`)
+        
+        // Auto-clear success messages
+        if (!background && !forceRefresh && !data.cached) {
+          setTimeout(() => {
+            if (connectionError.includes('✅')) {
+              setConnectionError('')
+            }
+          }, 5000)
+        }
       }
       
     } else {
@@ -155,7 +163,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
     
   } catch (error: any) {
     console.error('❌ Load jobs error:', error)
-    setConnectionError('Network error. Please check connection.')
+    setConnectionError('Network error')
     setJobs([])
   } finally {
     if (!background) setJobsLoading(false)
