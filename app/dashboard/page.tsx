@@ -27,7 +27,6 @@ interface Job {
   proposals: number
   verified: boolean
   category?: string
-  duration?: string
   source?: string
   isRealJob?: boolean
 }
@@ -37,18 +36,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobsLoading, setJobsLoading] = useState(false)
-  const [connectionError, setConnectionError] = useState('')
+  const [message, setMessage] = useState('')
+  const [messageType, setMessageType] = useState<'success' | 'error' | 'info'>('info')
   const [upworkConnected, setUpworkConnected] = useState(false)
-  
-  const [searchTerm, setSearchTerm] = useState('')
-  const [searchInput, setSearchInput] = useState('')
+  const [needsReconnect, setNeedsReconnect] = useState(false)
   
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showPopup, setShowPopup] = useState(false)
-  
-  const [refreshCount, setRefreshCount] = useState(0)
-  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
-  const [pagesFetched, setPagesFetched] = useState(0)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -72,114 +67,111 @@ export default function Dashboard() {
     }
   }
 
-// In your dashboard page, change the loadJobs function:
-
-const loadJobs = async (search = '', forceRefresh = false) => {
-  setJobsLoading(true)
-  setConnectionError('')
-  
-  try {
-    console.log('🔄 Loading jobs...')
+  const loadJobs = async () => {
+    setJobsLoading(true)
+    setMessage('')
+    setNeedsReconnect(false)
     
-    const url = `/api/upwork/jobs${search ? `?search=${encodeURIComponent(search)}` : ''}`
-    
-    const response = await fetch(url)
-    const data = await response.json()
-    
-    console.log('📊 API Response:', data)
-    
-    if (data.success) {
-      setJobs(data.jobs || [])
-      setUpworkConnected(data.upworkConnected || false)
+    try {
+      console.log('🔄 Loading jobs...')
+      setMessage('🔄 Loading jobs from Upwork...')
+      setMessageType('info')
       
-      // Handle token refresh case
-      if (data.tokenRefreshed) {
-        setConnectionError('✅ Token refreshed, fetching jobs...')
-        // Auto-refresh after token refresh
-        setTimeout(() => loadJobs(search, true), 1000)
-        return
+      const response = await fetch('/api/upwork/jobs')
+      const data = await response.json()
+      
+      console.log('📊 API Response:', data)
+      
+      if (data.success) {
+        setJobs(data.jobs || [])
+        setUpworkConnected(data.upworkConnected || false)
+        
+        if (data.jobs?.length === 0) {
+          setMessage(data.message || 'No jobs found')
+          setMessageType('info')
+        } else {
+          setMessage(data.message || '')
+          setMessageType('success')
+        }
+      } else {
+        setJobs([])
+        setUpworkConnected(data.upworkConnected || false)
+        
+        // Check if we need to reconnect
+        if (data.action === 'reconnect' || data.message.includes('expired') || data.message.includes('reconnect')) {
+          setNeedsReconnect(true)
+          setMessage(`🔴 ${data.message}`)
+        } else {
+          setMessage(`❌ ${data.message}`)
+        }
+        setMessageType('error')
       }
       
-      if (data.jobs?.length === 0) {
-        setConnectionError(data.message || 'No jobs found')
-      } else {
-        setConnectionError(data.message || '')
-      }
-    } else {
-      // Check if we need to reconnect
-      if (data.action === 'reconnect' || data.action === 'connect_upwork') {
-        setConnectionError(`❌ ${data.message} Click "Connect Upwork" in sidebar.`)
-      } else {
-        setConnectionError(data.message || 'Failed to load jobs')
-      }
+    } catch (error: any) {
+      console.error('Load error:', error)
       setJobs([])
+      setMessage('Network error. Please try again.')
+      setMessageType('error')
+    } finally {
+      setJobsLoading(false)
+    }
+  }
+
+  const handleDisconnectUpwork = async () => {
+    if (!confirm('Are you sure you want to disconnect Upwork? You will need to reconnect.')) {
+      return
     }
     
-  } catch (error: any) {
-    console.error('Load error:', error)
-    setConnectionError('Network error. Please try again.')
-    setJobs([])
-  } finally {
-    setJobsLoading(false)
-  }
-}
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (searchInput.trim()) {
-      setSearchTerm(searchInput.trim())
-      loadJobs(searchInput.trim(), true)
-    } else {
-      setSearchInput('')
-      setSearchTerm('')
-      loadJobs('', true)
+    setDisconnecting(true)
+    setMessage('🔄 Disconnecting Upwork...')
+    
+    try {
+      const response = await fetch('/api/upwork/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setMessage('✅ Upwork disconnected. Please reconnect from sidebar.')
+        setMessageType('success')
+        setJobs([])
+        setUpworkConnected(false)
+        setNeedsReconnect(false)
+        
+        // Show reconnect instructions
+        setTimeout(() => {
+          setMessage('📢 Click "Connect Upwork" in the sidebar to reconnect with fresh token.')
+          setMessageType('info')
+        }, 2000)
+      } else {
+        setMessage(`❌ ${data.message}`)
+        setMessageType('error')
+      }
+    } catch (error: any) {
+      setMessage(`❌ Disconnect failed: ${error.message}`)
+      setMessageType('error')
+    } finally {
+      setDisconnecting(false)
     }
   }
 
-  const handleClearSearch = () => {
-    setSearchInput('')
-    setSearchTerm('')
-    loadJobs('', true)
-  }
-
-  const handleForceRefresh = () => {
-    loadJobs(searchTerm, true)
-    setRefreshCount(prev => prev + 1)
+  const handleReconnect = () => {
+    // This will trigger the sidebar connect button
+    const sidebarButton = document.querySelector('[href*="upwork/auth"]') as HTMLElement
+    if (sidebarButton) {
+      sidebarButton.click()
+    } else {
+      setMessage('Please use the "Connect Upwork" button in the sidebar')
+      setMessageType('info')
+    }
   }
 
   const handleJobClick = (job: Job) => {
     setSelectedJob(job)
     setShowPopup(true)
   }
-
-  // Calculate job statistics
-  const getJobStats = () => {
-    const today = new Date()
-    const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
-    
-    const recentJobs = jobs.filter(job => {
-      const jobDate = new Date(job.postedDate)
-      return jobDate >= lastWeek
-    }).length
-    
-    const highBudgetJobs = jobs.filter(job => {
-      const budget = job.budget.replace(/[^0-9.-]/g, '')
-      return parseFloat(budget) > 500
-    }).length
-    
-    const totalProposals = jobs.reduce((sum, job) => sum + (job.proposals || 0), 0)
-    
-    const avgProposals = jobs.length > 0 ? Math.round(totalProposals / jobs.length) : 0
-    
-    return {
-      recentJobs,
-      highBudgetJobs,
-      avgProposals,
-      categories: [...new Set(jobs.map(job => job.category).filter(Boolean))].length
-    }
-  }
-
-  const stats = getJobStats()
 
   if (loading) {
     return (
@@ -193,242 +185,195 @@ const loadJobs = async (search = '', forceRefresh = false) => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex-1 p-6">
-        {/* Header */}
-        <div className="mb-8">
+    <div className="min-h-screen bg-gray-50 p-6">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">Upwork Jobs Dashboard</h1>
+        <p className="text-sm text-gray-600">
+          {upworkConnected ? '✅ Connected to Upwork' : '❌ Upwork not connected'}
+        </p>
+      </div>
+
+      {/* Message Display */}
+      {message && (
+        <div className={`mb-6 p-4 rounded-lg border ${
+          messageType === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+          messageType === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+          'bg-blue-50 border-blue-200 text-blue-800'
+        }`}>
           <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Upwork Jobs Dashboard</h1>
-              <p className="text-sm text-gray-600">
-                {upworkConnected ? '🔗 Connected to Upwork API' : 'Connect Upwork to see real jobs'}
-              </p>
-            </div>
-            
-            <button 
-              onClick={handleForceRefresh}
-              disabled={jobsLoading}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
-            >
-              {jobsLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Refreshing...</span>
-                </>
-              ) : (
-                <>
-                  <span>🔄</span>
-                  <span>Refresh Jobs</span>
-                </>
+            <span>{message}</span>
+            <div className="flex space-x-2">
+              {needsReconnect && (
+                <button
+                  onClick={handleDisconnectUpwork}
+                  disabled={disconnecting}
+                  className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                >
+                  {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+                </button>
               )}
-            </button>
-          </div>
-        </div>
-
-        {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-blue-600">{jobs.length}</div>
-            <div className="text-sm text-gray-600">Total Jobs</div>
-            <div className="text-xs text-gray-500 mt-1">{pagesFetched} pages fetched</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-green-600">{stats.recentJobs}</div>
-            <div className="text-sm text-gray-600">Recent Jobs (7 days)</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-purple-600">{stats.highBudgetJobs}</div>
-            <div className="text-sm text-gray-600">High Budget ($500+)</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-orange-600">{stats.categories}</div>
-            <div className="text-sm text-gray-600">Categories</div>
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <form onSubmit={handleSearch} className="space-y-4">
-            <div className="flex items-center space-x-4">
-              <div className="flex-1">
-                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                  Search Upwork Jobs (Real-time)
-                </label>
-                <div className="flex items-center">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      id="search"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="Search by job title, description, or skills..."
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
-                    </div>
-                  </div>
-                  <div className="flex space-x-3 ml-3">
-                    <button
-                      type="submit"
-                      disabled={jobsLoading}
-                      className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-semibold"
-                    >
-                      {jobsLoading ? 'Searching...' : '🔍 Search'}
-                    </button>
-                    {searchTerm && (
-                      <button
-                        type="button"
-                        onClick={handleClearSearch}
-                        className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300 transition-colors"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  {searchTerm 
-                    ? `Searching Upwork for: "${searchTerm}"`
-                    : 'Enter keywords to search 10,000+ Upwork jobs'
-                  }
-                </p>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        {/* Connection Message */}
-        {connectionError && (
-          <div className={`px-4 py-3 rounded-lg mb-6 ${
-            connectionError.includes('✅') || connectionError.includes('Loaded') || connectionError.includes('Found')
-              ? 'bg-green-100 border border-green-400 text-green-700'
-              : 'bg-yellow-100 border border-yellow-400 text-yellow-700'
-          }`}>
-            <div className="flex justify-between items-center">
-              <span>{connectionError}</span>
-              <button 
-                onClick={handleForceRefresh}
-                className="ml-4 text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+              <button
+                onClick={loadJobs}
+                disabled={jobsLoading}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
               >
-                Refresh
+                {jobsLoading ? 'Loading...' : 'Refresh'}
               </button>
             </div>
           </div>
-        )}
-
-        {/* Jobs List */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900">
-                {searchTerm ? `🔍 Search Results for "${searchTerm}"` : '📊 Upwork Jobs (Real-time)'}
-              </h2>
-              <div className="text-sm text-gray-600">
-                {jobs.length} jobs loaded • Last refresh: {lastRefreshTime ? lastRefreshTime.toLocaleTimeString() : 'Never'}
-              </div>
+          
+          {needsReconnect && (
+            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+              <p className="text-sm text-yellow-800 font-semibold">⚠️ Action Required:</p>
+              <p className="text-sm text-yellow-700 mt-1">
+                Your Upwork token has expired. Please:
+              </p>
+              <ol className="text-sm text-yellow-700 mt-2 ml-4 list-decimal space-y-1">
+                <li>Click "Disconnect" button above</li>
+                <li>Click "Connect Upwork" in sidebar</li>
+                <li>Re-authorize in Upwork</li>
+                <li>Jobs will load automatically</li>
+              </ol>
             </div>
-          </div>
+          )}
+        </div>
+      )}
 
-          <div className="divide-y divide-gray-200">
-            {jobsLoading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">
-                  {searchTerm ? `Searching Upwork for "${searchTerm}"...` : 'Loading Upwork jobs with pagination...'}
-                </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  Fetching multiple pages of jobs from Upwork API...
-                </p>
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="text-gray-400 mb-4 text-6xl">💼</div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  {searchTerm ? 'No Jobs Found' : 'No Jobs Available'}
-                </h3>
-                <p className="text-gray-500 mb-6">
-                  {searchTerm 
-                    ? `Try different keywords or check Upwork directly.`
-                    : 'Try refreshing or check your Upwork connection.'
-                  }
-                </p>
-                <button 
-                  onClick={handleForceRefresh}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
-                >
-                  Refresh Jobs
-                </button>
-              </div>
-            ) : (
-              jobs.map((job) => (
-                <div 
-                  key={job.id} 
-                  className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
-                  onClick={() => handleJobClick(job)}
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <h3 className="font-semibold text-gray-900 text-lg hover:text-blue-600">
-                      {job.title}
-                    </h3>
-                    <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
-                      {job.budget}
-                    </span>
-                  </div>
-                  
-                  <p className="text-gray-600 text-sm mb-3">
-                    {job.category} • Posted: {job.postedDate} • {job.proposals} proposals
-                  </p>
-                  
-                  <p className="text-gray-700 mb-3">
-                    {job.description.substring(0, 250)}
-                    {job.description.length > 250 && '...'}
-                  </p>
-                  
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                      {job.skills.slice(0, 5).map((skill, index) => (
-                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
-                          {skill}
-                        </span>
-                      ))}
-                      {job.skills.length > 5 && (
-                        <span className="text-gray-500 text-sm">
-                          +{job.skills.length - 5} more
-                        </span>
-                      )}
-                    </div>
-                    
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleJobClick(job)
-                      }}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                    >
-                      Generate Proposal
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
+      {/* Stats Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="text-2xl font-bold text-gray-900">{jobs.length}</div>
+          <div className="text-sm text-gray-600">Jobs Loaded</div>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="text-2xl font-bold text-gray-900">{upworkConnected ? '✅' : '❌'}</div>
+          <div className="text-sm text-gray-600">Upwork Status</div>
+        </div>
+        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+          <div className="text-2xl font-bold text-gray-900">100%</div>
+          <div className="text-sm text-gray-600">Real Data</div>
+        </div>
+      </div>
+
+      {/* Jobs List */}
+      <div className="bg-white rounded-lg shadow border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-gray-900">
+              {jobs.length > 0 ? '📊 Upwork Jobs' : 'No Jobs Available'}
+            </h2>
+            <div className="text-sm text-gray-600">
+              {jobs.length} jobs • {upworkConnected ? 'Live' : 'Offline'}
+            </div>
           </div>
         </div>
 
-        {/* Job Proposal Popup */}
-        {showPopup && selectedJob && user && (
-          <JobProposalPopup
-            job={selectedJob}
-            user={user}
-            onClose={() => {
-              setShowPopup(false)
-              setSelectedJob(null)
-            }}
-          />
-        )}
+        <div className="divide-y divide-gray-200">
+          {jobsLoading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading jobs from Upwork API...</p>
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-gray-400 mb-4 text-6xl">💼</div>
+              <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                {needsReconnect ? 'Upwork Token Expired' : 'No Jobs Available'}
+              </h3>
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                {needsReconnect 
+                  ? 'Your Upwork connection needs to be refreshed. Please disconnect and reconnect.'
+                  : 'Connect Upwork to see real jobs or try refreshing.'
+                }
+              </p>
+              <div className="flex justify-center space-x-3">
+                {needsReconnect ? (
+                  <>
+                    <button
+                      onClick={handleDisconnectUpwork}
+                      disabled={disconnecting}
+                      className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {disconnecting ? 'Disconnecting...' : 'Disconnect Upwork'}
+                    </button>
+                    <button
+                      onClick={loadJobs}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+                    >
+                      Try Again
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={loadJobs}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+                  >
+                    Refresh Jobs
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            jobs.map((job) => (
+              <div 
+                key={job.id} 
+                className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
+                onClick={() => handleJobClick(job)}
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <h3 className="font-semibold text-gray-900 text-lg hover:text-blue-600">
+                    {job.title}
+                  </h3>
+                  <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
+                    {job.budget}
+                  </span>
+                </div>
+                
+                <p className="text-gray-600 text-sm mb-3">
+                  {job.category} • Posted: {job.postedDate} • {job.proposals} proposals
+                </p>
+                
+                <p className="text-gray-700 mb-3">
+                  {job.description.substring(0, 200)}...
+                </p>
+                
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    {job.skills.slice(0, 3).map((skill, index) => (
+                      <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                  
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleJobClick(job)
+                    }}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  >
+                    Generate Proposal
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
+
+      {/* Job Proposal Popup */}
+      {showPopup && selectedJob && user && (
+        <JobProposalPopup
+          job={selectedJob}
+          user={user}
+          onClose={() => {
+            setShowPopup(false)
+            setSelectedJob(null)
+          }}
+        />
+      )}
     </div>
   )
 }
