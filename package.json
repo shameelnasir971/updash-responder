@@ -24,6 +24,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.5",
+    "@types/lodash": "^4.17.21",
     "@types/node": "^20",
     "@types/nodemailer": "^7.0.4",
     "@types/pg": "^8.10.9",
