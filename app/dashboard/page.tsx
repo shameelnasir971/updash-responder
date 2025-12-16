@@ -1,4 +1,4 @@
-//app/dashboard/page.tsx
+///app/dashboard/page.tsx
 
 'use client'
 
@@ -61,19 +61,18 @@ export default function Dashboard() {
     checkAuth()
   }, [])
 
-// Auto-refresh jobs every 5 minutes
-// Auto-refresh jobs every 5 minutes
-useEffect(() => {
-  if (!upworkConnected) return
-  
-  const interval = setInterval(() => {
-    fetch('/api/upwork/refresh').then(() => {
-      console.log('🔄 Auto-refresh triggered')
-    })
-  }, 5 * 60 * 1000)
-  
-  return () => clearInterval(interval)
-}, [upworkConnected])
+  useEffect(() => {
+    if (!autoRefresh || !upworkConnected) return
+    
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing jobs...')
+      loadJobs(searchTerm, false, true)
+      setRefreshCount(prev => prev + 1)
+      setLastRefreshTime(new Date())
+    }, 3 * 60 * 1000) // 3 minutes
+    
+    return () => clearInterval(interval)
+  }, [autoRefresh, upworkConnected, searchTerm])
 
   const checkAuth = async () => {
     try {
@@ -94,82 +93,84 @@ useEffect(() => {
   }
 
   // ✅ IMPROVED: Load jobs with pagination
-const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false, pageNumber = 1) => {
-  if (!background) setJobsLoading(true)
-  setConnectionError('')
-  
-  try {
-    console.log('🔄 Loading PAGINATED jobs...', 
-      search ? `Search: "${search}"` : 'ALL JOBS',
-      `Page: ${pageNumber}`,
-      forceRefresh ? '(Force Refresh)' : ''
-    )
+  const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false) => {
+    if (!background) setJobsLoading(true)
+    setConnectionError('')
     
-    // ✅ Use paginated endpoint with limit 20
-    const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}page=${pageNumber}&limit=20`
-    
-    const response = await fetch(url)
-    
-    if (response.status === 401) {
-      setConnectionError('Session expired. Please login again.')
-      window.location.href = '/auth/login'
-      return
-    }
-    
-    const data = await response.json()
-    console.log('📊 Jobs Data:', {
-      success: data.success,
-      count: data.jobs?.length,
-      allJobsCount: data.allJobsCount,
-      page: data.page,
-      totalPages: data.totalPages,
-      message: data.message,
-      cached: data.cached || false,
-      pagesFetched: data.pagesFetched
-    })
-
-    if (data.success) {
-      setJobs(data.jobs || [])
-      setUpworkConnected(data.upworkConnected || false)
-      setPage(data.page || pageNumber)
-      setHasMoreJobs(data.hasMore || false)
+    try {
+      console.log('🔄 Loading BULK jobs...', 
+        search ? `Search: "${search}"` : '', 
+        forceRefresh ? '(Force Refresh)' : ''
+      )
       
-      if (data.jobs?.length === 0) {
-        setConnectionError(search 
-          ? `No jobs found for "${search}"`
-          : 'No jobs found. Try refreshing.'
-        )
-      } else if (data.jobs?.length > 0) {
-        const totalMsg = data.allJobsCount > data.jobs?.length 
-          ? ` (${data.allJobsCount} total available)` 
-          : ''
-        
-        const cachedMsg = data.cached ? ' (cached)' : ''
-        setConnectionError(`${data.message}${totalMsg}${cachedMsg}`)
-        
-        // Auto-clear success messages
-        if (!background && !forceRefresh && !data.cached) {
-          setTimeout(() => {
-            if (connectionError.includes('✅')) {
-              setConnectionError('')
-            }
-          }, 5000)
-        }
+      const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${forceRefresh ? 'refresh=true&' : ''}`
+      
+      const response = await fetch(url)
+      
+      if (response.status === 401) {
+        setConnectionError('Session expired. Please login again.')
+        window.location.href = '/auth/login'
+        return
       }
       
-    } else {
-      setConnectionError(data.message || 'Failed to load jobs')
+      const data = await response.json()
+      console.log('📊 Jobs Data:', {
+        success: data.success,
+        count: data.jobs?.length,
+        totalUnique: data.totalUnique,
+        message: data.message,
+        cached: data.cached || false,
+        batchesFetched: data.batchesFetched
+      })
+
+      if (data.success) {
+        // If it's a background refresh, only update if we have more jobs
+        if (background && data.jobs?.length <= jobs.length) {
+          console.log('No new jobs in background refresh')
+          return
+        }
+        
+        setJobs(data.jobs || [])
+        setUpworkConnected(data.upworkConnected || false)
+        
+        if (data.jobs?.length === 0) {
+          setConnectionError(search 
+            ? `No jobs found for "${search}". Try different keywords.`
+            : 'No jobs found. Upwork API might be limiting requests. Try refreshing.'
+          )
+        } else if (data.jobs?.length > 0) {
+          const message = data.cached 
+            ? `${data.message} (cached)`
+            : data.message
+          
+          setConnectionError(message)
+          
+          // Auto-clear success messages
+          if (!background && !forceRefresh) {
+            setTimeout(() => {
+              if (connectionError.includes('✅')) {
+                setConnectionError('')
+              }
+            }, 4000)
+          }
+        }
+        
+        // Check if we have more jobs available
+        setHasMoreJobs(data.totalUnique > data.jobs?.length)
+        
+      } else {
+        setConnectionError(data.message || 'Failed to load jobs')
+        setJobs([])
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Load jobs error:', error)
+      setConnectionError('Network error. Please check connection.')
       setJobs([])
+    } finally {
+      if (!background) setJobsLoading(false)
     }
-    
-  } catch (error: any) {
-    console.error('❌ Load jobs error:', error)
-    setConnectionError('Network error')
-    setJobs([])
-  } finally {
-    if (!background) setJobsLoading(false)
-  }
-}, [connectionError, jobs.length]) // ✅ Add page to dependencies
+  }, [connectionError, jobs.length])
 
   // ✅ NEW: Load more jobs
   const loadMoreJobs = async () => {
@@ -207,35 +208,32 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
     }
   }
 
-const handleSearch = (e: React.FormEvent) => {
-  e.preventDefault()
-  if (searchInput.trim()) {
-    setSearchTerm(searchInput.trim())
-    setPage(1) // Reset to page 1
-    // ✅ Add page parameter
-    loadJobs(searchInput.trim(), true, false, 1)
-  } else {
-    setSearchTerm('')
-    setPage(1) // Reset to page 1
-    loadJobs('', true, false, 1)
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (searchInput.trim()) {
+      setSearchTerm(searchInput.trim())
+      setPage(1)
+      loadJobs(searchInput.trim(), true)
+    } else {
+      setSearchTerm('')
+      setPage(1)
+      loadJobs('', true)
+    }
   }
-}
 
- const handleClearSearch = () => {
-  setSearchInput('')
-  setSearchTerm('')
-  setPage(1) // Reset to page 1
-  // ✅ Add page parameter
-  loadJobs('', true, false, 1)
-}
+  const handleClearSearch = () => {
+    setSearchInput('')
+    setSearchTerm('')
+    setPage(1)
+    loadJobs('', true)
+  }
 
-const handleForceRefresh = () => {
-  setPage(1) // Reset to page 1
-  // ✅ Add page parameter
-  loadJobs(searchTerm, true, false, 1)
-  setRefreshCount(prev => prev + 1)
-  setLastRefreshTime(new Date())
-}
+  const handleForceRefresh = () => {
+    setPage(1)
+    loadJobs(searchTerm, true)
+    setRefreshCount(prev => prev + 1)
+    setLastRefreshTime(new Date())
+  }
 
   const handleJobClick = (job: Job) => {
     setSelectedJob(job)
@@ -647,61 +645,6 @@ const handleForceRefresh = () => {
             )}
           </div>
         </div>
-
-
-
-
-
-{/* Pagination Controls */}
-{jobs.length > 0 && (
-  <div className="p-6 border-t border-gray-200">
-    <div className="flex items-center justify-between">
-      <div className="text-sm text-gray-600">
-        Showing {jobs.length} jobs (page {page})
-      </div>
-      <div className="flex space-x-2">
-        <button
-          onClick={() => {
-            if (page > 1) {
-              // ✅ Correct: Pass 3 parameters + page number
-              loadJobs(searchTerm, false, false, page - 1)
-            }
-          }}
-          disabled={page === 1 || jobsLoading}
-          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-        >
-          Previous
-        </button>
-        
-        <button
-          onClick={() => {
-            if (hasMoreJobs) {
-              // ✅ Correct: Pass 3 parameters + page number
-              loadJobs(searchTerm, false, false, page + 1)
-            }
-          }}
-          disabled={!hasMoreJobs || jobsLoading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          Next Page
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         {/* Job Proposal Popup */}
         {showPopup && selectedJob && user && (
