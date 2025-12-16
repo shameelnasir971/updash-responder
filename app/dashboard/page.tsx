@@ -145,9 +145,9 @@ export default function Dashboard() {
       )
       
       // ✅ BULK FETCH URL
-      const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${
-        forceRefresh ? 'refresh=true&' : ''
-      }bulk=true`
+     const url = `/api/upwork/jobs?${search ? `search=${encodeURIComponent(search)}&` : ''}${
+  forceRefresh ? 'refresh=true' : ''
+}`
       
       console.log('📤 Fetching from:', url)
       
