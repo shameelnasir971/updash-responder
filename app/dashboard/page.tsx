@@ -1,5 +1,4 @@
-//app/dashboard/page.tsx
-
+// app/dashboard/page.tsx - OPTIMIZED FOR BULK LOADING
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -48,14 +47,15 @@ export default function Dashboard() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showPopup, setShowPopup] = useState(false)
   
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [autoRefresh, setAutoRefresh] = useState(false) // Disabled for bulk loading
   const [refreshCount, setRefreshCount] = useState(0)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
   
-  // ✅ NEW: Load more state
+  // ✅ Pagination state
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMoreJobs, setHasMoreJobs] = useState(true)
   const [page, setPage] = useState(1)
+  const [totalJobsCount, setTotalJobsCount] = useState(0)
 
   useEffect(() => {
     checkAuth()
@@ -65,14 +65,12 @@ export default function Dashboard() {
     if (!autoRefresh || !upworkConnected) return
     
     const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing jobs...')
-      loadJobs(searchTerm, false, true)
-      setRefreshCount(prev => prev + 1)
-      setLastRefreshTime(new Date())
-    }, 3 * 60 * 1000) // 3 minutes
+      console.log('🔄 Auto-refresh disabled for bulk loading')
+      // Disabled to prevent API rate limiting
+    }, 10 * 60 * 1000) // 10 minutes
     
     return () => clearInterval(interval)
-  }, [autoRefresh, upworkConnected, searchTerm])
+  }, [autoRefresh, upworkConnected])
 
   const checkAuth = async () => {
     try {
@@ -81,7 +79,7 @@ export default function Dashboard() {
       
       if (data.authenticated && data.user) {
         setUser(data.user)
-        loadJobs()
+        loadInitialJobs()
       } else {
         window.location.href = '/auth/login'
       }
@@ -92,125 +90,205 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ IMPROVED: Load jobs with pagination
- // Find the loadJobs function and update it:
-
-const loadJobs = useCallback(async (search = '', forceRefresh = false, background = false) => {
-  if (!background) setJobsLoading(true)
-  setConnectionError('')
-  
-  try {
-    console.log('🔄 Loading REAL jobs...', 
-      search ? `Search: "${search}"` : '', 
-      forceRefresh ? '(Force Refresh)' : ''
-    )
+  // ✅ INITIAL LOAD: 100+ jobs
+  const loadInitialJobs = async () => {
+    setJobsLoading(true)
+    setConnectionError('')
     
-    // ✅ SIMPLE URL - REMOVE PAGINATION PARAMS
-    const url = `/api/upwork/jobs${search || forceRefresh ? '?' : ''}${
-      search ? `search=${encodeURIComponent(search)}${forceRefresh ? '&' : ''}` : ''
-    }${forceRefresh ? 'refresh=true' : ''}`
-    
-    console.log('📤 Fetching from:', url)
-    
-    const response = await fetch(url)
-    
-    if (response.status === 401) {
-      setConnectionError('Session expired. Please login again.')
-      window.location.href = '/auth/login'
-      return
-    }
-    
-    const data = await response.json()
-    console.log('📊 Jobs Data:', {
-      success: data.success,
-      count: data.jobs?.length,
-      message: data.message,
-      cached: data.cached || false
-    })
-
-    if (data.success) {
-      // If it's a background refresh, only update if we have more jobs
-      if (background && data.jobs?.length <= jobs.length) {
-        console.log('No new jobs in background refresh')
+    try {
+      console.log('🚀 Loading INITIAL bulk jobs (100+)...')
+      
+      const response = await fetch('/api/upwork/jobs?limit=100')
+      
+      if (response.status === 401) {
+        setConnectionError('Session expired. Please login again.')
+        window.location.href = '/auth/login'
         return
       }
       
-      setJobs(data.jobs || [])
-      setUpworkConnected(data.upworkConnected || false)
-      
-      if (data.jobs?.length === 0) {
-        setConnectionError(search 
-          ? `No jobs found for "${search}". Try different keywords.`
-          : 'No jobs found. Upwork API might be limiting requests. Try refreshing.'
-        )
-      } else if (data.jobs?.length > 0) {
-        const message = data.cached 
-          ? `${data.message} (cached)`
-          : data.message
+      const data = await response.json()
+      console.log('📊 Initial Jobs Data:', {
+        success: data.success,
+        count: data.jobs?.length,
+        totalCount: data.totalCount,
+        hasNextPage: data.hasNextPage
+      })
+
+      if (data.success) {
+        setJobs(data.jobs || [])
+        setUpworkConnected(data.upworkConnected || false)
+        setHasMoreJobs(data.hasNextPage || false)
+        setTotalJobsCount(data.totalCount || data.jobs?.length || 0)
         
-        setConnectionError(message)
+        if (data.jobs?.length === 0) {
+          setConnectionError('No jobs found. Upwork API might be limiting requests.')
+        } else if (data.jobs?.length > 0) {
+          setConnectionError(`✅ SUCCESS! Loaded ${data.jobs.length} real jobs from Upwork (Total available: ${data.totalCount || 'Unknown'})`)
+        }
+        
+      } else {
+        setConnectionError(data.message || 'Failed to load jobs')
+        setJobs([])
       }
       
-    } else {
-      setConnectionError(data.message || 'Failed to load jobs')
+    } catch (error: any) {
+      console.error('❌ Initial load error:', error)
+      setConnectionError('Network error. Please check connection.')
       setJobs([])
+    } finally {
+      setJobsLoading(false)
+      setLastRefreshTime(new Date())
+    }
+  }
+
+  // ✅ SEARCH JOBS with Upwork API filter
+  const searchJobs = async (searchQuery: string) => {
+    if (!searchQuery.trim()) {
+      loadInitialJobs()
+      return
     }
     
-  } catch (error: any) {
-    console.error('❌ Load jobs error:', error)
-    setConnectionError('Network error. Please check connection.')
-    setJobs([])
-  } finally {
-    if (!background) setJobsLoading(false)
-  }
-}, [connectionError, jobs.length])
+    setJobsLoading(true)
+    setConnectionError('')
+    setSearchTerm(searchQuery)
+    
+    try {
+      console.log(`🔍 Searching Upwork for: "${searchQuery}"`)
+      
+      const encodedQuery = encodeURIComponent(searchQuery)
+      const response = await fetch(`/api/upwork/jobs?search=${encodedQuery}&limit=100`)
+      
+      const data = await response.json()
+      console.log('📊 Search Results:', {
+        success: data.success,
+        count: data.jobs?.length,
+        query: searchQuery
+      })
 
-  // ✅ NEW: Load more jobs
+      if (data.success) {
+        setJobs(data.jobs || [])
+        setUpworkConnected(data.upworkConnected || false)
+        setHasMoreJobs(data.hasNextPage || false)
+        setTotalJobsCount(data.totalCount || data.jobs?.length || 0)
+        setPage(1)
+        
+        if (data.jobs?.length === 0) {
+          setConnectionError(`❌ No jobs found for "${searchQuery}". Try different keywords.`)
+        } else if (data.jobs?.length > 0) {
+          setConnectionError(`✅ Found ${data.jobs.length} jobs for "${searchQuery}"`)
+        }
+        
+      } else {
+        setConnectionError(data.message || 'Search failed')
+        setJobs([])
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Search error:', error)
+      setConnectionError('Search failed. Please try again.')
+      setJobs([])
+    } finally {
+      setJobsLoading(false)
+      setLastRefreshTime(new Date())
+    }
+  }
+
+  // ✅ LOAD MORE JOBS (Pagination)
   const loadMoreJobs = async () => {
     if (loadingMore || !hasMoreJobs) return
     
     setLoadingMore(true)
+    
     try {
-      console.log(`📥 Loading more jobs (page ${page + 1})...`)
+      console.log(`📥 Loading more jobs (Page ${page + 1})...`)
       
-      // For now, we'll just trigger a force refresh to get different jobs
-      // In future, we can implement proper pagination
-      const response = await fetch(`/api/upwork/jobs?refresh=true&page=${page + 1}`)
+      const params = new URLSearchParams({
+        page: (page + 1).toString()
+      })
+      
+      if (searchTerm) {
+        params.append('search', searchTerm)
+      }
+      
+      const response = await fetch(`/api/upwork/jobs?${params}`)
       const data = await response.json()
       
       if (data.success && data.jobs?.length > 0) {
-        // Filter out duplicates and add new jobs
+        // Filter duplicates
         const existingIds = new Set(jobs.map(job => job.id))
         const newJobs = data.jobs.filter((job: Job) => !existingIds.has(job.id))
         
         if (newJobs.length > 0) {
           setJobs(prev => [...prev, ...newJobs])
           setPage(prev => prev + 1)
+          setHasMoreJobs(data.hasNextPage || false)
           setConnectionError(`✅ Added ${newJobs.length} more jobs! Total: ${jobs.length + newJobs.length}`)
         } else {
-          setConnectionError('No new jobs found. Try refreshing.')
+          setHasMoreJobs(false)
+          setConnectionError('No more unique jobs available.')
         }
-        
-        setHasMoreJobs(data.totalUnique > (jobs.length + newJobs.length))
+      } else {
+        setHasMoreJobs(false)
+        setConnectionError('No more jobs available.')
       }
+      
     } catch (error: any) {
-      console.error('Load more error:', error)
+      console.error('❌ Load more error:', error)
       setConnectionError('Failed to load more jobs')
     } finally {
       setLoadingMore(false)
     }
   }
 
+  // ✅ FORCE REFRESH
+  const handleForceRefresh = async () => {
+    setJobsLoading(true)
+    setConnectionError('')
+    
+    try {
+      console.log('🔄 Force refreshing all jobs...')
+      
+      const params = new URLSearchParams({
+        refresh: 'true',
+        limit: '100'
+      })
+      
+      if (searchTerm) {
+        params.append('search', searchTerm)
+      }
+      
+      const response = await fetch(`/api/upwork/jobs?${params}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setJobs(data.jobs || [])
+        setHasMoreJobs(data.hasNextPage || false)
+        setTotalJobsCount(data.totalCount || data.jobs?.length || 0)
+        setRefreshCount(prev => prev + 1)
+        setLastRefreshTime(new Date())
+        
+        if (data.jobs?.length > 0) {
+          setConnectionError(`✅ Refreshed! ${data.jobs.length} jobs loaded`)
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Refresh error:', error)
+      setConnectionError('Refresh failed')
+    } finally {
+      setJobsLoading(false)
+    }
+  }
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchInput.trim()) {
-      setSearchTerm(searchInput.trim())
-      setPage(1)
-      loadJobs(searchInput.trim(), true)
+      searchJobs(searchInput.trim())
     } else {
+      setSearchInput('')
       setSearchTerm('')
       setPage(1)
-      loadJobs('', true)
+      loadInitialJobs()
     }
   }
 
@@ -218,14 +296,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
     setSearchInput('')
     setSearchTerm('')
     setPage(1)
-    loadJobs('', true)
-  }
-
-  const handleForceRefresh = () => {
-    setPage(1)
-    loadJobs(searchTerm, true)
-    setRefreshCount(prev => prev + 1)
-    setLastRefreshTime(new Date())
+    loadInitialJobs()
   }
 
   const handleJobClick = (job: Job) => {
@@ -260,37 +331,12 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Upwork Jobs Dashboard</h1>
-              <div className="flex items-center space-x-4 mt-2">
-                <p className="text-sm text-gray-600">
-                  {upworkConnected ? '🔗 Connected to Upwork API' : 'Connect Upwork to see real jobs'}
-                </p>
-                {lastRefreshTime && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                    Last refresh: {formatTimeAgo(lastRefreshTime)}
-                  </span>
-                )}
-              </div>
+              <p className="text-sm text-gray-600 mt-1">
+                {upworkConnected ? '🔗 Connected to Upwork API - Fetching REAL jobs' : 'Connect Upwork to see real jobs'}
+              </p>
             </div>
             
             <div className="flex items-center space-x-4">
-              <div className="flex items-center">
-                <label className="flex items-center cursor-pointer">
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      className="sr-only"
-                      checked={autoRefresh}
-                      onChange={(e) => setAutoRefresh(e.target.checked)}
-                    />
-                    <div className={`block w-14 h-8 rounded-full ${autoRefresh ? 'bg-green-600' : 'bg-gray-300'}`}></div>
-                    <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition transform ${autoRefresh ? 'translate-x-6' : ''}`}></div>
-                  </div>
-                  <div className="ml-3 text-gray-700 font-medium text-sm">
-                    Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
-                  </div>
-                </label>
-              </div>
-              
               <button 
                 onClick={handleForceRefresh}
                 disabled={jobsLoading}
@@ -318,7 +364,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
             <div className="flex items-center space-x-4">
               <div className="flex-1">
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                  Search ALL Upwork Jobs
+                  Search ALL Upwork Jobs (Real-time API Search)
                 </label>
                 <div className="flex items-center">
                   <div className="relative flex-1">
@@ -327,7 +373,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                       id="search"
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="Search by job title, description, or skills (e.g., 'Shopify', 'Web Developer', 'Logo Design')"
+                      placeholder="Search job titles, descriptions, or skills (e.g., 'React Developer', 'Logo Design', 'Content Writing')"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
                     />
                     <div className="absolute inset-y-0 right-0 flex items-center pr-3">
@@ -342,7 +388,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                       disabled={jobsLoading}
                       className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-semibold"
                     >
-                      {jobsLoading ? 'Searching...' : '🔍 Search ALL Jobs'}
+                      {jobsLoading ? 'Searching...' : '🔍 Search Upwork'}
                     </button>
                     {searchTerm && (
                       <button
@@ -357,91 +403,48 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
                   {searchTerm 
-                    ? `Searching across ALL Upwork jobs for: "${searchTerm}"`
-                    : 'Enter keywords to search across ALL Upwork jobs. System fetches 50+ jobs on each refresh.'
+                    ? `Searching REAL Upwork jobs for: "${searchTerm}"`
+                    : 'Enter keywords to search across ALL Upwork jobs. Searches Upwork API directly (not local cache).'
                   }
                 </p>
               </div>
             </div>
-            
-            {/* Quick Search Suggestions */}
-            <div className="flex flex-wrap gap-2">
-              {['Shopify', 'Web Developer', 'Graphic Design', 'WordPress', 'Logo Design', 'Virtual Assistant', 'Content Writing', 'Social Media', 'React', 'Python'].map((keyword) => (
-                <button
-                  key={keyword}
-                  type="button"
-                  onClick={() => {
-                    setSearchInput(keyword)
-                    setSearchTerm(keyword)
-                    loadJobs(keyword, true)
-                  }}
-                  className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition-colors"
-                >
-                  {keyword}
-                </button>
-              ))}
-            </div>
           </form>
         </div>
 
-        {/* Status Bar */}
+        {/* Stats Bar */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-6">
-              <div>
-                <div className="text-sm text-gray-600">Jobs Loaded</div>
-                <div className="text-2xl font-bold text-gray-900">{jobs.length}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Auto-refresh</div>
-                <div className={`font-semibold ${autoRefresh ? 'text-green-600' : 'text-red-600'}`}>
-                  {autoRefresh ? 'Every 3 minutes' : 'Disabled'}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Refresh Count</div>
-                <div className="text-xl font-bold text-blue-600">{refreshCount}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Search Term</div>
-                <div className="font-semibold text-gray-900">
-                  {searchTerm || 'All Jobs'}
-                </div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-700">{jobs.length}</div>
+              <div className="text-sm text-blue-600">Jobs Loaded</div>
             </div>
-            
-            {lastRefreshTime && (
-              <div className="text-sm text-gray-500">
-                Last updated: {lastRefreshTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-              </div>
-            )}
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-700">{totalJobsCount}</div>
+              <div className="text-sm text-green-600">Total Available</div>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <div className="text-2xl font-bold text-purple-700">{searchTerm ? 'Search' : 'All Jobs'}</div>
+              <div className="text-sm text-purple-600">Current View</div>
+            </div>
+            <div className="text-center p-4 bg-yellow-50 rounded-lg">
+              <div className="text-2xl font-bold text-yellow-700">100%</div>
+              <div className="text-sm text-yellow-600">Real Data</div>
+            </div>
           </div>
         </div>
 
-        {/* Error/Success Message */}
+        {/* Connection Status */}
         {connectionError && (
           <div className={`px-4 py-3 rounded-lg mb-6 ${
-            connectionError.includes('✅') || connectionError.includes('Loaded') || connectionError.includes('Added')
+            connectionError.includes('✅') || connectionError.includes('SUCCESS') || connectionError.includes('Found') || connectionError.includes('Added')
               ? 'bg-green-100 border border-green-400 text-green-700'
-              : connectionError.includes('Found')
+              : connectionError.includes('No jobs')
               ? 'bg-blue-100 border border-blue-400 text-blue-700'
               : 'bg-yellow-100 border border-yellow-400 text-yellow-700'
           }`}>
             <div className="flex justify-between items-center">
               <div className="flex items-center">
-                {connectionError.includes('✅') || connectionError.includes('Loaded') || connectionError.includes('Added') ? (
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ) : connectionError.includes('Found') ? (
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                )}
                 <span>{connectionError}</span>
               </div>
               <div className="flex space-x-2">
@@ -451,14 +454,6 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                 >
                   Refresh
                 </button>
-                {!autoRefresh && (
-                  <button 
-                    onClick={() => setAutoRefresh(true)}
-                    className="ml-2 text-sm px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700"
-                  >
-                    Enable Auto-refresh
-                  </button>
-                )}
               </div>
             </div>
           </div>
@@ -470,46 +465,21 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  {searchTerm ? `🔍 Search Results for "${searchTerm}"` : '📊 ALL Upwork Jobs'}
+                  {searchTerm ? `🔍 Results for "${searchTerm}"` : '📊 All Upwork Jobs'}
                 </h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'} loaded
-                  {searchTerm && (
-                    <button 
-                      onClick={handleClearSearch}
-                      className="ml-3 text-blue-600 hover:text-blue-800 text-sm"
-                    >
-                      Clear search
-                    </button>
-                  )}
+                  Showing {jobs.length} jobs • {hasMoreJobs ? 'More available' : 'All loaded'} • 100% real Upwork data
                 </p>
               </div>
               <div className="flex items-center space-x-3">
                 {!upworkConnected && (
                   <button 
-                    onClick={() => window.open('/dashboard?tab=connect', '_self')}
+                    onClick={() => window.location.href = '/dashboard/settings'}
                     className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
                   >
                     🔗 Connect Upwork
                   </button>
                 )}
-                <button 
-                  onClick={handleForceRefresh}
-                  disabled={jobsLoading}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
-                >
-                  {jobsLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Refreshing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>🔄</span>
-                      <span>Refresh All</span>
-                    </>
-                  )}
-                </button>
               </div>
             </div>
           </div>
@@ -519,10 +489,10 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                 <p className="text-gray-600">
-                  {searchTerm ? `Searching ALL Upwork jobs for "${searchTerm}"...` : 'Loading ALL real jobs from Upwork...'}
+                  {searchTerm ? `Searching Upwork for "${searchTerm}"...` : 'Loading 100+ real jobs from Upwork...'}
                 </p>
                 <p className="text-sm text-gray-500 mt-2">
-                  Fetching 50+ jobs from Upwork marketplace. This may take a few seconds...
+                  Fetching directly from Upwork API. This may take a few seconds...
                 </p>
               </div>
             ) : jobs.length === 0 ? (
@@ -531,29 +501,29 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                   {searchTerm ? '🔍' : '💼'}
                 </div>
                 <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  {searchTerm ? 'No Jobs Found' : 'Upwork Not Connected'}
+                  {searchTerm ? 'No Jobs Found' : 'No Jobs Available'}
                 </h3>
                 <p className="text-gray-500 mb-6 max-w-md mx-auto">
                   {searchTerm 
-                    ? `No jobs match "${searchTerm}". Try different keywords or refresh to get latest jobs.`
-                    : 'Connect your Upwork account to see real jobs from the Upwork marketplace.'
+                    ? `No Upwork jobs match "${searchTerm}". Try different keywords.`
+                    : 'No jobs found. Try refreshing or check your Upwork connection.'
                   }
                 </p>
                 <div className="space-x-4">
-                  {!upworkConnected && (
-                    <button 
-                      onClick={() => window.open('/dashboard?tab=connect', '_self')}
-                      className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700"
-                    >
-                      🔗 Connect Upwork Now
-                    </button>
-                  )}
                   <button 
                     onClick={handleForceRefresh}
                     className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
                   >
-                    Try Again
+                    Refresh Jobs
                   </button>
+                  {searchTerm && (
+                    <button 
+                      onClick={handleClearSearch}
+                      className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700"
+                    >
+                      Clear Search
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -565,20 +535,18 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                     onClick={() => handleJobClick(job)}
                   >
                     <div className="flex justify-between items-start mb-3">
-                      <h3 className="font-semibold text-gray-900 text-lg hover:text-blue-600">
-                        {job.title}
-                      </h3>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900 text-lg hover:text-blue-600">
+                          {job.title}
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {job.category} • Posted: {job.postedDate} • {job.proposals} proposals
+                        </p>
+                      </div>
                       <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
                         {job.budget}
                       </span>
                     </div>
-                    
-                    <p className="text-gray-600 text-sm mb-3">
-                      <span className="font-medium">{job.category}</span> • 
-                      Posted: {job.postedDate} •
-                      Proposals: {job.proposals} •
-                      {job.verified && ' ✅ Verified'}
-                    </p>
                     
                     <p className="text-gray-700 mb-3">
                       {job.description.substring(0, 250)}
@@ -587,14 +555,14 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                     
                     <div className="flex justify-between items-center">
                       <div className="flex items-center space-x-2">
-                        {job.skills.slice(0, 3).map((skill, index) => (
+                        {job.skills.slice(0, 5).map((skill, index) => (
                           <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
                             {skill}
                           </span>
                         ))}
-                        {job.skills.length > 3 && (
+                        {job.skills.length > 5 && (
                           <span className="text-gray-500 text-sm">
-                            +{job.skills.length - 3} more
+                            +{job.skills.length - 5} more
                           </span>
                         )}
                       </div>
@@ -613,7 +581,7 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                 ))}
                 
                 {/* Load More Button */}
-                {hasMoreJobs && !searchTerm && (
+                {hasMoreJobs && (
                   <div className="p-6 text-center border-t border-gray-200">
                     <button
                       onClick={loadMoreJobs}
@@ -626,17 +594,28 @@ const loadJobs = useCallback(async (search = '', forceRefresh = false, backgroun
                           <span>Loading more jobs...</span>
                         </div>
                       ) : (
-                        '📥 Load More Jobs'
+                        '📥 Load More Jobs (Next Page)'
                       )}
                     </button>
                     <p className="text-sm text-gray-500 mt-2">
-                      Click to load additional jobs from Upwork
+                      Click to load additional jobs from Upwork API
                     </p>
                   </div>
                 )}
               </>
             )}
           </div>
+        </div>
+
+        {/* Footer Info */}
+        <div className="mt-6 text-center text-sm text-gray-500">
+          <p>
+            All data is fetched directly from Upwork API in real-time. 
+            {searchTerm ? ` Currently searching for: "${searchTerm}"` : ' Showing latest Upwork jobs.'}
+          </p>
+          <p className="mt-1">
+            Last updated: {lastRefreshTime ? formatTimeAgo(lastRefreshTime) : 'Never'}
+          </p>
         </div>
 
         {/* Job Proposal Popup */}
