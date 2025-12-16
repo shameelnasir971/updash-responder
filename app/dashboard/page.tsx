@@ -91,55 +91,56 @@ export default function Dashboard() {
   }
 
   // ✅ INITIAL LOAD: 100+ jobs
-  const loadInitialJobs = async () => {
-    setJobsLoading(true)
-    setConnectionError('')
+ // Updated loadInitialJobs function
+const loadInitialJobs = async () => {
+  setJobsLoading(true)
+  setConnectionError('')
+  
+  try {
+    console.log('🔄 Loading jobs...')
     
-    try {
-      console.log('🚀 Loading INITIAL bulk jobs (100+)...')
-      
-      const response = await fetch('/api/upwork/jobs?limit=100')
-      
-      if (response.status === 401) {
-        setConnectionError('Session expired. Please login again.')
-        window.location.href = '/auth/login'
-        return
-      }
-      
-      const data = await response.json()
-      console.log('📊 Initial Jobs Data:', {
-        success: data.success,
-        count: data.jobs?.length,
-        totalCount: data.totalCount,
-        hasNextPage: data.hasNextPage
-      })
-
-      if (data.success) {
-        setJobs(data.jobs || [])
-        setUpworkConnected(data.upworkConnected || false)
-        setHasMoreJobs(data.hasNextPage || false)
-        setTotalJobsCount(data.totalCount || data.jobs?.length || 0)
-        
-        if (data.jobs?.length === 0) {
-          setConnectionError('No jobs found. Upwork API might be limiting requests.')
-        } else if (data.jobs?.length > 0) {
-          setConnectionError(`✅ SUCCESS! Loaded ${data.jobs.length} real jobs from Upwork (Total available: ${data.totalCount || 'Unknown'})`)
-        }
-        
-      } else {
-        setConnectionError(data.message || 'Failed to load jobs')
-        setJobs([])
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Initial load error:', error)
-      setConnectionError('Network error. Please check connection.')
-      setJobs([])
-    } finally {
-      setJobsLoading(false)
-      setLastRefreshTime(new Date())
+    // ✅ SIMPLE CALL - NO COMPLEX PARAMS
+    const response = await fetch('/api/upwork/jobs')
+    
+    if (response.status === 401) {
+      setConnectionError('Session expired. Please login again.')
+      window.location.href = '/auth/login'
+      return
     }
+    
+    const data = await response.json()
+    console.log('📊 Jobs Data:', {
+      success: data.success,
+      count: data.jobs?.length,
+      message: data.message,
+      cached: data.cached || false
+    })
+
+    if (data.success) {
+      setJobs(data.jobs || [])
+      setUpworkConnected(data.upworkConnected || false)
+      setHasMoreJobs(data.hasNextPage || false)
+      setTotalJobsCount(data.total || 0)
+      
+      if (data.jobs?.length === 0) {
+        setConnectionError('No jobs found. Upwork API might be limiting requests.')
+      } else if (data.jobs?.length > 0) {
+        const source = data.cached ? '(cached)' : '(real-time)'
+        setConnectionError(`✅ Loaded ${data.jobs.length} jobs ${source}`)
+      }
+    } else {
+      setConnectionError(data.message || 'Failed to load jobs')
+      setJobs([])
+    }
+  } catch (error: any) {
+    console.error('❌ Load error:', error)
+    setConnectionError('Network error. Please check connection.')
+    setJobs([])
+  } finally {
+    setJobsLoading(false)
+    setLastRefreshTime(new Date())
   }
+}
 
   // ✅ SEARCH JOBS with Upwork API filter
   const searchJobs = async (searchQuery: string) => {
