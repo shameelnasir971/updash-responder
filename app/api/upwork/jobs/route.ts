@@ -5,25 +5,30 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// Cache for 5 minutes
 let jobsCache: any[] = []
 let cacheTimestamp: number = 0
 const CACHE_DURATION = 5 * 60 * 1000
 
-async function fetchUpworkJobs(accessToken: string, searchKeyword?: string, afterCursor?: string) {
+async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCursor?: string) {
   try {
-    console.log('🚀 Fetching Upwork jobs...', searchKeyword ? `Keyword: "${searchKeyword}"` : 'All recent jobs')
+    console.log('🚀 Fetching jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All recent jobs')
 
     const variables: any = {
       searchType: "USER_JOBS_SEARCH",
-      marketPlaceJobFilter: searchKeyword ? { q: searchKeyword } : {},  // Empty {} for all jobs, q for search
       sortAttributes: [
-        { field: "POSTED_DATE", direction: "DESC" }  // Newest first - most reliable
+        { field: "RECENCY", direction: "DESC" }
       ],
       pagination: {
         first: 50
       }
     }
+
+    // For search: add q field
+    // For all jobs: omit marketPlaceJobFilter completely (null)
+    if (searchTerm) {
+      variables.marketPlaceJobFilter = { q: searchTerm }
+    }
+    // else: no marketPlaceJobFilter → all recent jobs
 
     if (afterCursor) {
       variables.pagination.after = afterCursor
@@ -100,23 +105,23 @@ async function fetchUpworkJobs(accessToken: string, searchKeyword?: string, afte
     })
 
     if (!response.ok) {
-      const errText = await response.text()
-      console.error('❌ API Error:', response.status, errText.substring(0, 500))
+      const err = await response.text()
+      console.error('API Error:', response.status, err.substring(0, 500))
       return { success: false, jobs: [], hasNextPage: false, endCursor: null }
     }
 
     const data = await response.json()
 
     if (data.errors) {
-      console.error('❌ GraphQL Errors:', data.errors)
+      console.error('GraphQL Errors:', data.errors)
       return { success: false, jobs: [], hasNextPage: false, endCursor: null }
     }
 
-    const connection = data.data?.marketplaceJobPostingsSearch
+    const connection = data.data.marketplaceJobPostingsSearch
     const edges = connection?.edges || []
     const pageInfo = connection?.pageInfo || {}
 
-    console.log(`✅ Fetched ${edges.length} jobs this page`)
+    console.log(`✅ ${edges.length} jobs fetched this page`)
 
     const jobs = edges.map((edge: any) => {
       const n = edge.node
@@ -137,7 +142,7 @@ async function fetchUpworkJobs(accessToken: string, searchKeyword?: string, afte
 
       return {
         id: n.id,
-        title: n.title || 'Untitled Job',
+        title: n.title || 'Untitled',
         description: n.description || '',
         budget,
         postedDate,
@@ -165,7 +170,7 @@ async function fetchUpworkJobs(accessToken: string, searchKeyword?: string, afte
     }
 
   } catch (error: any) {
-    console.error('❌ Fetch Error:', error)
+    console.error('Fetch Error:', error)
     return { success: false, jobs: [], hasNextPage: false, endCursor: null }
   }
 }
@@ -181,7 +186,7 @@ export async function GET(request: NextRequest) {
 
     const res = await pool.query('SELECT access_token FROM upwork_accounts WHERE user_id = $1', [user.id])
     if (res.rows.length === 0) {
-      return NextResponse.json({ success: false, message: 'Connect Upwork account first', upworkConnected: false })
+      return NextResponse.json({ success: false, message: 'Connect Upwork first', upworkConnected: false })
     }
 
     const accessToken = res.rows[0].access_token
@@ -202,7 +207,7 @@ export async function GET(request: NextRequest) {
     let hasNext = true
     let pages = 0
 
-    while (hasNext && pages < 20) {  // Max ~1000 jobs safe
+    while (hasNext && pages < 20) {
       const result = await fetchUpworkJobs(accessToken, search || undefined, cursor || undefined)
       if (!result.success || result.jobs.length === 0) break
 
@@ -211,7 +216,7 @@ export async function GET(request: NextRequest) {
       cursor = result.endCursor
       pages++
 
-      await new Promise(r => setTimeout(r, 800))  // Safe delay
+      await new Promise(r => setTimeout(r, 800))
     }
 
     if (!search) {
@@ -229,11 +234,11 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('❌ Server Error:', error)
+    console.error('Server Error:', error)
     return NextResponse.json({
       success: false,
-      jobs: jobsCache.length > 0 ? jobsCache : [],
-      message: jobsCache.length > 0 ? '⚠️ Using cached jobs' : 'Error'
+      jobs: jobsCache,
+      message: 'Error – using cached jobs if available'
     })
   }
 }
