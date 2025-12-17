@@ -189,7 +189,7 @@ async function fetchUpworkJobsSimple(accessToken: string) {
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     
-    const recentJobs = jobs.filter((job: { rawDate: string | number | Date }) => {
+    const recentJobs = jobs.filter(job => {
       if (!job.rawDate) return true
       const jobDate = new Date(job.rawDate)
       return jobDate >= thirtyDaysAgo
