@@ -1,3 +1,4 @@
+// app/api/upwork/jobs/route.ts - SAFE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -28,17 +29,11 @@ type JobItem = {
   verified: boolean
   source: 'upwork'
   isRealJob: true
-  client?: {
-    name: string
-    rating: number
-    country: string
-    totalSpent: number
-    totalHires: number
-  }
 }
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
+// Fetch jobs for a single category
 async function fetchJobsForCategory(
   accessToken: string,
   category: string,
@@ -60,13 +55,6 @@ async function fetchJobsForCategory(
               skills { name }
               amount { rawValue currency }
               hourlyBudgetMin { rawValue currency }
-              client {
-                location { country }
-                totalSpent
-                totalHires
-                totalFeedback
-                totalReviews
-              }
             }
           }
         }
@@ -90,61 +78,53 @@ async function fetchJobsForCategory(
 
   const json: any = await res.json()
   const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
+
   const jobs: JobItem[] = []
 
   for (const edge of edges) {
     const n = edge.node
-
+    // Filter by search keyword
     if (search) {
       const q = search.toLowerCase()
       const match =
         n.title?.toLowerCase().includes(q) ||
         n.description?.toLowerCase().includes(q) ||
-        (Array.isArray(n.skills) && n.skills.some((s: any) => s?.name?.toLowerCase().includes(q)))
+        (Array.isArray(n.skills) && n.skills.some((s: any) =>
+          s?.name?.toLowerCase().includes(q)
+        ))
       if (!match) continue
     }
 
     let budget = 'Not specified'
     if (n.amount?.rawValue) {
-      budget = `${n.amount.currency || 'USD'} ${n.amount.rawValue}`
+      budget = `${n.amount.currency} ${n.amount.rawValue}`
     } else if (n.hourlyBudgetMin?.rawValue) {
-      budget = `${n.hourlyBudgetMin.currency || 'USD'} ${n.hourlyBudgetMin.rawValue}/hr`
-    }
-
-    // Safe client data (real from API, often partial/anonymized)
-    const clientData = n.client ? {
-      name: 'Upwork Client', // Anonymized - real name not provided by API
-      rating: n.client.totalFeedback || 0,
-      country: n.client.location?.country || 'Worldwide',
-      totalSpent: n.client.totalSpent || 0,
-      totalHires: n.client.totalHires || 0,
-    } : {
-      name: 'Upwork Client',
-      rating: 0,
-      country: 'Worldwide',
-      totalSpent: 0,
-      totalHires: 0,
+      budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
     }
 
     jobs.push({
       id: n.id,
-      title: n.title || 'Untitled Job',
+      title: n.title || 'Job',
       description: n.description || '',
       budget,
-      postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString(),
+      postedDate: new Date(
+        n.publishedDateTime || n.createdDateTime
+      ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
       category: n.category || category,
-      skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s?.name || 'Unknown Skill') : [],
+      skills: Array.isArray(n.skills)
+        ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
+        : [],
       verified: true,
       source: 'upwork',
-      isRealJob: true,
-      client: clientData
+      isRealJob: true
     })
   }
 
   return jobs
 }
 
+// ================= API Handler =================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -159,7 +139,6 @@ export async function GET(req: NextRequest) {
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-
     if (tokenRes.rows.length === 0)
       return NextResponse.json({
         success: false,
@@ -168,6 +147,7 @@ export async function GET(req: NextRequest) {
         message: 'Upwork not connected'
       })
 
+    // CACHE HIT
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
@@ -179,6 +159,7 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    // Multi-category fetch
     const accessToken = tokenRes.rows[0].access_token
     let allJobs: JobItem[] = []
 
