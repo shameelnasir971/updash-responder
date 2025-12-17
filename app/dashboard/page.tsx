@@ -116,7 +116,7 @@ export default function Dashboard() {
           calculateStats(data.jobs)
         }
         
-        if (data.jobs?.length === 0) {
+      if (data.jobs?.length === 0) {
   setConnectionError(search 
     ? `No jobs found for "${search}". Try different keywords.`
     : 'No jobs found. Upwork API might be limiting requests.'
