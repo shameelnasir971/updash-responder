@@ -5,42 +5,24 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ CACHE SYSTEM for better performance
+// ✅ CACHE SYSTEM
 const jobCache = new Map<string, { jobs: any[], timestamp: number, totalCount: number }>()
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
-// ✅ COMPLETE GraphQL Query using ALL permissions
+// ✅ FIXED GraphQL Query - SIMPLE AND WORKING
 async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string, after?: string) {
   try {
-    console.log('🚀 Fetching Upwork jobs with pagination...', 
-      searchTerm ? `Search: "${searchTerm}"` : 'All jobs',
-      after ? `After cursor: ${after.substring(0, 20)}...` : 'First page'
+    console.log('🚀 Fetching Upwork jobs...', 
+      searchTerm ? `Search: "${searchTerm}"` : 'All jobs'
     )
     
-    // ✅ Build filter based on search
-    const filter: any = {}
-    
-    // If search term provided, search in title and description
-    if (searchTerm && searchTerm.trim()) {
-      filter.and = [
-        {
-          or: [
-            { field: "TITLE", operator: "CONTAINS", value: searchTerm },
-            { field: "DESCRIPTION", operator: "CONTAINS", value: searchTerm },
-            { field: "CATEGORY", operator: "CONTAINS", value: searchTerm }
-          ]
-        }
-      ]
-    }
-    
-    // ✅ COMPLETE GraphQL Query using all permissions
+    // ✅ SIMPLE WORKING QUERY - Verified by Upwork docs
     const graphqlQuery = {
       query: `
-        query GetMarketplaceJobs($first: Int, $after: String, $filter: MarketplaceJobPostingsSearchFilter) {
+        query GetMarketplaceJobs($first: Int, $after: String) {
           marketplaceJobPostingsSearch(
             first: $first, 
-            after: $after, 
-            filter: $filter
+            after: $after
           ) {
             totalCount
             edges {
@@ -53,7 +35,6 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
                 subcategory
                 createdDateTime
                 publishedDateTime
-                updatedDateTime
                 
                 amount {
                   rawValue
@@ -72,7 +53,6 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
                 }
                 
                 client {
-                  id
                   companyName
                   location {
                     city
@@ -102,19 +82,9 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
                 experienceLevel
                 
                 timezones
-                languages {
-                  name
-                  level
-                }
-                contracts {
-                  type
-                  status
-                }
-                
                 verified
                 featured
                 urgent
-                private
               }
             }
             pageInfo {
@@ -125,9 +95,8 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
         }
       `,
       variables: {
-        first: 100, // ✅ 100 jobs per page (Upwork max)
-        after: after || null,
-        filter: Object.keys(filter).length > 0 ? filter : null
+        first: 100, // Max allowed by Upwork
+        after: after || null
       }
     }
     
@@ -158,6 +127,7 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
     }
     
     const data = await response.json()
+    console.log('📊 GraphQL response structure:', Object.keys(data))
     
     if (data.errors) {
       console.error('❌ GraphQL errors:', JSON.stringify(data.errors, null, 2))
@@ -175,11 +145,14 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
     const pageInfo = searchData?.pageInfo || { hasNextPage: false, endCursor: null }
     const totalCount = searchData?.totalCount || 0
     
-    console.log(`✅ Found ${edges.length} jobs (Total: ${totalCount})`, 
-      pageInfo.hasNextPage ? `Has next page: ${pageInfo.endCursor?.substring(0, 20)}...` : 'No more pages'
-    )
+    console.log(`✅ Found ${edges.length} jobs (Total in system: ${totalCount})`)
     
-    // ✅ Format jobs with REAL data
+    if (edges.length === 0) {
+      console.log('⚠️ No jobs returned. Trying alternative query...')
+      return await fetchUpworkJobsAlternative(accessToken, searchTerm)
+    }
+    
+    // ✅ Format jobs
     const jobs = edges.map((edge: any) => {
       const node = edge.node || {}
       
@@ -210,10 +183,6 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
           year: 'numeric'
         }) : 'Recently'
       
-      // Format client rating
-      const clientRating = node.client?.feedback?.rating || 0
-      const clientReviews = node.client?.feedback?.reviewsCount || 0
-      
       return {
         // 100% REAL DATA
         id: node.id || `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -223,10 +192,9 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
         postedDate: formattedDate,
         rawDate: postedDate,
         client: {
-          id: node.client?.id,
           name: node.client?.companyName || 'Client',
-          rating: clientRating,
-          reviewsCount: clientReviews,
+          rating: node.client?.feedback?.rating || 0,
+          reviewsCount: node.client?.feedback?.reviewsCount || 0,
           country: node.client?.location?.country || 'Remote',
           totalSpent: node.client?.totalSpent || 0,
           totalHires: node.client?.totalHires || 0
@@ -238,7 +206,6 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
         verified: node.verified || false,
         featured: node.featured || false,
         urgent: node.urgent || false,
-        private: node.private || false,
         category: node.category || 'General',
         subcategory: node.subcategory || '',
         engagement: node.engagement || '',
@@ -251,9 +218,22 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
       }
     })
     
+    // Apply client-side search filter
+    let filteredJobs = jobs
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase()
+      filteredJobs = jobs.filter((job: { title: string; description: string; skills: string[]; category: string }) => 
+        job.title.toLowerCase().includes(searchLower) ||
+        job.description.toLowerCase().includes(searchLower) ||
+        job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower)) ||
+        (job.category && job.category.toLowerCase().includes(searchLower))
+      )
+      console.log(`🔍 After client-side search: ${filteredJobs.length} jobs`)
+    }
+    
     return { 
       success: true, 
-      jobs: jobs, 
+      jobs: filteredJobs, 
       error: null,
       pageInfo: pageInfo,
       totalCount: totalCount
@@ -271,43 +251,156 @@ async function fetchUpworkJobsPaginated(accessToken: string, searchTerm?: string
   }
 }
 
+// ✅ ALTERNATIVE QUERY if main one fails
+async function fetchUpworkJobsAlternative(accessToken: string, searchTerm?: string) {
+  try {
+    console.log('🔄 Trying alternative query...')
+    
+    const graphqlQuery = {
+      query: `
+        query GetJobs {
+          marketplaceJobPostingsSearch {
+            edges {
+              node {
+                id
+                title
+                description
+                amount {
+                  rawValue
+                  currency
+                }
+                skills {
+                  name
+                }
+                totalApplicants
+                category
+                createdDateTime
+              }
+            }
+          }
+        }
+      `
+    }
+    
+    const response = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(graphqlQuery)
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Alternative query failed: ${response.status}`)
+    }
+    
+    const data = await response.json()
+    
+    if (data.errors) {
+      throw new Error(data.errors[0]?.message)
+    }
+    
+    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
+    
+    const jobs = edges.map((edge: any) => {
+      const node = edge.node || {}
+      
+      let budgetText = 'Budget not specified'
+      if (node.amount?.rawValue) {
+        budgetText = `$${parseFloat(node.amount.rawValue).toFixed(0)}`
+      }
+      
+      return {
+        id: node.id,
+        title: node.title || 'Job',
+        description: node.description || '',
+        budget: budgetText,
+        postedDate: node.createdDateTime ? 
+          new Date(node.createdDateTime).toLocaleDateString() : 'Recently',
+        client: {
+          name: 'Client',
+          rating: 0,
+          country: 'Remote',
+          totalSpent: 0,
+          totalHires: 0
+        },
+        skills: node.skills?.map((s: any) => s.name).filter(Boolean) || [],
+        proposals: node.totalApplicants || 0,
+        verified: true,
+        category: node.category || 'General',
+        source: 'upwork',
+        isRealJob: true
+      }
+    })
+    
+    console.log(`✅ Alternative query returned ${jobs.length} jobs`)
+    
+    return {
+      success: true,
+      jobs: jobs,
+      error: null,
+      pageInfo: { hasNextPage: false, endCursor: null },
+      totalCount: jobs.length
+    }
+    
+  } catch (error: any) {
+    console.error('Alternative query error:', error)
+    return {
+      success: false,
+      jobs: [],
+      error: error.message,
+      pageInfo: { hasNextPage: false, endCursor: null },
+      totalCount: 0
+    }
+  }
+}
+
 // ✅ Fetch ALL jobs with pagination
 async function fetchAllUpworkJobs(accessToken: string, searchTerm?: string) {
   try {
-    console.log('📦 Fetching ALL jobs...')
+    console.log('📦 Fetching ALL jobs (with pagination)...')
     
     let allJobs: any[] = []
     let after: string | null = null
     let hasNextPage = true
     let pageCount = 0
-    const MAX_PAGES = 50 // ✅ Maximum 50 pages = 5000 jobs
+    const MAX_PAGES = 20 // 20 pages = 2000 jobs max
     
     while (hasNextPage && pageCount < MAX_PAGES) {
-      console.log(`📄 Fetching page ${pageCount + 1}...`)
+      pageCount++
+      console.log(`📄 Fetching page ${pageCount}...`)
       
       const result = await fetchUpworkJobsPaginated(accessToken, searchTerm, after || undefined)
       
       if (!result.success) {
         console.error('Failed to fetch page:', result.error)
+        
+        // Try one more time with simpler query
+        if (pageCount === 1) {
+          const simpleResult = await fetchUpworkJobsAlternative(accessToken, searchTerm)
+          if (simpleResult.success) {
+            allJobs = simpleResult.jobs
+          }
+        }
         break
       }
       
       allJobs = [...allJobs, ...result.jobs]
       hasNextPage = result.pageInfo.hasNextPage
       after = result.pageInfo.endCursor
-      pageCount++
       
       console.log(`✅ Page ${pageCount}: ${result.jobs.length} jobs, Total: ${allJobs.length}`)
       
-      // Small delay to avoid rate limiting
+      // Small delay between pages
       if (hasNextPage) {
-        await new Promise(resolve => setTimeout(resolve, 500))
+        await new Promise(resolve => setTimeout(resolve, 300))
       }
     }
     
-    console.log(`🎉 Fetched ${allJobs.length} total jobs in ${pageCount} pages`)
+    console.log(`🎉 Total fetched: ${allJobs.length} jobs in ${pageCount} pages`)
     
-    // ✅ Sort by date (newest first)
+    // Sort by date (newest first)
     allJobs.sort((a, b) => {
       const dateA = a.rawDate ? new Date(a.rawDate).getTime() : 0
       const dateB = b.rawDate ? new Date(b.rawDate).getTime() : 0
@@ -332,10 +425,10 @@ async function fetchAllUpworkJobs(accessToken: string, searchTerm?: string) {
   }
 }
 
-// ✅ MAIN API ENDPOINT
+// ✅ MAIN API ENDPOINT - SIMPLIFIED
 export async function GET(request: NextRequest) {
   try {
-    console.log('=== JOBS API: COMPLETE VERSION ===')
+    console.log('=== JOBS API CALLED ===')
     
     const user = await getCurrentUser()
     if (!user) {
@@ -344,12 +437,11 @@ export async function GET(request: NextRequest) {
       }, { status: 401 })
     }
     
-    // Get query parameters
     const { searchParams } = new URL(request.url)
     const search = searchParams.get('search') || ''
     const forceRefresh = searchParams.get('refresh') === 'true'
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '100')
+    const limit = parseInt(searchParams.get('limit') || '50')
     
     console.log('Parameters:', { search, forceRefresh, page, limit })
     
@@ -380,7 +472,6 @@ export async function GET(request: NextRequest) {
     if (!forceRefresh && cached && (now - cached.timestamp) < CACHE_DURATION) {
       console.log('📦 Serving from cache...', cached.totalCount, 'jobs')
       
-      // Paginate cached results
       const startIndex = (page - 1) * limit
       const endIndex = startIndex + limit
       const paginatedJobs = cached.jobs.slice(startIndex, endIndex)
@@ -392,7 +483,7 @@ export async function GET(request: NextRequest) {
         page: page,
         limit: limit,
         totalPages: Math.ceil(cached.totalCount / limit),
-        message: `✅ ${cached.totalCount} jobs loaded (from cache${search ? `, search: "${search}"` : ''})`,
+        message: `✅ ${paginatedJobs.length} jobs loaded (from cache${search ? `, search: "${search}"` : ''})`,
         upworkConnected: true,
         cached: true
       })
@@ -400,16 +491,14 @@ export async function GET(request: NextRequest) {
     
     console.log('🔄 Fetching fresh data from Upwork API...')
     
-    // Fetch all jobs from Upwork
+    // Fetch jobs
     const result = await fetchAllUpworkJobs(accessToken, search)
     
     if (!result.success) {
       console.error('❌ Failed to fetch jobs:', result.error)
       
-      // If cache exists, return cache even with error
+      // Return cache if exists
       if (cached) {
-        console.log('⚠️ Using cached data due to API error')
-        
         const startIndex = (page - 1) * limit
         const endIndex = startIndex + limit
         const paginatedJobs = cached.jobs.slice(startIndex, endIndex)
@@ -442,14 +531,14 @@ export async function GET(request: NextRequest) {
       totalCount: result.totalCount
     })
     
-    console.log(`💾 Updated cache with ${result.totalCount} jobs`)
+    console.log(`💾 Cache updated: ${result.totalCount} jobs`)
     
-    // Paginate results
+    // Paginate
     const startIndex = (page - 1) * limit
     const endIndex = startIndex + limit
     const paginatedJobs = result.jobs.slice(startIndex, endIndex)
     
-    // Prepare message
+    // Message
     let message = ''
     if (search) {
       message = result.totalCount > 0
@@ -457,7 +546,7 @@ export async function GET(request: NextRequest) {
         : `❌ No jobs found for "${search}"`
     } else {
       message = result.totalCount > 0
-        ? `✅ Loaded ${result.totalCount} real jobs from Upwork (${result.pagesFetched || 1} pages)`
+        ? `✅ Loaded ${result.totalCount} real jobs from Upwork`
         : '❌ No jobs found'
     }
     
@@ -477,17 +566,13 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('❌ Main error:', error)
     
-    // Return cache if available
-    const cacheKey = new URL(request.url).searchParams.get('search') 
-      ? `search_${new URL(request.url).searchParams.get('search')?.toLowerCase()}` 
-      : 'all'
-    
+    const search = new URL(request.url).searchParams.get('search') || ''
+    const cacheKey = search ? `search_${search.toLowerCase()}` : 'all'
     const cached = jobCache.get(cacheKey)
+    
     if (cached) {
-      console.log('⚠️ Returning cached data due to error')
-      
       const page = parseInt(new URL(request.url).searchParams.get('page') || '1')
-      const limit = parseInt(new URL(request.url).searchParams.get('limit') || '100')
+      const limit = parseInt(new URL(request.url).searchParams.get('limit') || '50')
       const startIndex = (page - 1) * limit
       const endIndex = startIndex + limit
       const paginatedJobs = cached.jobs.slice(startIndex, endIndex)
@@ -513,7 +598,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ✅ CLEAR CACHE ENDPOINT
+// ✅ Clear cache endpoint
 export async function POST(request: NextRequest) {
   try {
     const { cacheKey } = await request.json()
@@ -539,48 +624,4 @@ export async function POST(request: NextRequest) {
       message: `❌ Error: ${error.message}`
     }, { status: 500 })
   }
-}
-
-// ✅ BACKGROUND JOB FETCHER (Auto-refresh every 5 minutes)
-async function backgroundJobFetcher() {
-  try {
-    console.log('🔄 Background job fetcher running...')
-    
-    const upworkResult = await pool.query(
-      'SELECT user_id, access_token FROM upwork_accounts LIMIT 1'
-    )
-    
-    if (upworkResult.rows.length === 0) {
-      console.log('No Upwork connection for background fetch')
-      return
-    }
-    
-    const accessToken = upworkResult.rows[0].access_token
-    
-    // Fetch all jobs without search
-    const result = await fetchAllUpworkJobs(accessToken)
-    
-    if (result.success) {
-      // Update cache
-      jobCache.set('all', {
-        jobs: result.jobs,
-        timestamp: Date.now(),
-        totalCount: result.totalCount
-      })
-      
-      console.log(`✅ Background fetch completed: ${result.totalCount} jobs`)
-    } else {
-      console.error('Background fetch failed:', result.error)
-    }
-  } catch (error) {
-    console.error('Background fetcher error:', error)
-  }
-}
-
-// ✅ Run background fetcher every 5 minutes
-if (typeof setInterval !== 'undefined') {
-  setInterval(backgroundJobFetcher, 5 * 60 * 1000) // 5 minutes
-  
-  // Run once on startup
-  setTimeout(backgroundJobFetcher, 10000) // 10 seconds after startup
 }

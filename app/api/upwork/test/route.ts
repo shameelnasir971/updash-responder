@@ -5,7 +5,7 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -18,84 +18,101 @@ export async function GET() {
     )
     
     if (upworkResult.rows.length === 0) {
-      return NextResponse.json({ error: 'No Upwork connection' })
+      return NextResponse.json({
+        user: user.email,
+        upworkUserId: 'not_connected',
+        tokenExists: false,
+        apiTests: []
+      })
     }
     
     const accessToken = upworkResult.rows[0].access_token
-    const upworkUserId = upworkResult.rows[0].upwork_user_id
+    const upworkUserId = upworkResult.rows[0].upwork_user_id || 'unknown'
+    const tokenPreview = accessToken.substring(0, 30) + '...'
     
-    // Test multiple endpoints
-    const endpoints = [
+    // Test different endpoints
+    const testEndpoints = [
       {
-        url: 'https://www.upwork.com/ab/feed/jobs/rss?q=web+development',
+        name: 'RSS Feed',
+        endpoint: 'https://www.upwork.com/ab/feed/jobs/rss?q=web+development',
         method: 'GET'
       },
       {
-        url: 'https://www.upwork.com/api/profiles/v2/jobs/search.json?q=javascript',
+        name: 'REST API Search',
+        endpoint: 'https://www.upwork.com/api/profiles/v2/jobs/search.json?q=javascript',
         method: 'GET'
       },
       {
-        url: 'https://api.upwork.com/graphql',
+        name: 'GraphQL API',
+        endpoint: 'https://api.upwork.com/graphql',
         method: 'POST',
-        body: JSON.stringify({ query: '{ __typename }' }) // Simple test query
+        body: JSON.stringify({
+          query: '{ __typename }'
+        })
       },
       {
-        url: 'https://www.upwork.com/api/auth/v1/info.json',
+        name: 'Auth Info',
+        endpoint: 'https://www.upwork.com/api/auth/v1/info.json',
         method: 'GET'
       }
     ]
     
     const results = []
     
-    for (const endpoint of endpoints) {
+    for (const test of testEndpoints) {
       try {
-        const headers: any = {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json'
-        }
-        
         const options: any = {
-          method: endpoint.method,
-          headers
+          method: test.method,
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json'
+          }
         }
         
-        if (endpoint.body) {
-          headers['Content-Type'] = 'application/json'
-          options.body = endpoint.body
+        if (test.method === 'POST' && test.body) {
+          options.headers['Content-Type'] = 'application/json'
+          options.body = test.body
         }
         
-        const response = await fetch(endpoint.url, options)
+        const response = await fetch(test.endpoint, options)
         
-        let data = null
+        let data
         try {
           data = await response.json()
-        } catch {
-          data = await response.text()
+        } catch (e) {
+          data = { text: await response.text() }
         }
         
         results.push({
-          endpoint: endpoint.url,
+          endpoint: test.endpoint,
           status: response.status,
           ok: response.ok,
-          data: typeof data === 'string' ? data.substring(0, 500) + '...' : data
+          data: test.name === 'GraphQL API' ? { __typename: data?.data?.__typename } : data
         })
-      } catch (e: any) {
+        
+      } catch (error: any) {
         results.push({
-          endpoint: endpoint.url,
-          error: e.message
+          endpoint: test.endpoint,
+          error: error.message
         })
       }
+      
+      // Delay between requests
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
     
     return NextResponse.json({
       user: user.email,
       upworkUserId: upworkUserId,
-      tokenExists: !!accessToken,
-      tokenPreview: accessToken ? `${accessToken.substring(0, 20)}...` : 'No token',
+      tokenExists: true,
+      tokenPreview: tokenPreview,
       apiTests: results
     })
     
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({
+      error: error.message,
+      stack: error.stack
+    }, { status: 500 })
   }
 }

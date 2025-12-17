@@ -17,7 +17,6 @@ interface Job {
   budget: string
   postedDate: string
   client: {
-    id?: string
     name: string
     rating: number
     reviewsCount: number
@@ -60,6 +59,7 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [jobsPerPage] = useState(50)
+  const [lastRefresh, setLastRefresh] = useState<string>('')
 
   useEffect(() => {
     checkAuth()
@@ -122,6 +122,7 @@ export default function Dashboard() {
         setTotalJobs(data.total || 0)
         setTotalPages(data.totalPages || 1)
         setUpworkConnected(data.upworkConnected || false)
+        setLastRefresh(new Date().toLocaleTimeString())
         
         if (data.jobs?.length === 0) {
           setConnectionError(search 
@@ -186,18 +187,14 @@ export default function Dashboard() {
     setShowPopup(true)
   }
 
-  const handleClearCache = async () => {
+  const runTest = async () => {
     try {
-      await fetch('/api/upwork/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cacheKey: searchTerm ? `search_${searchTerm.toLowerCase()}` : 'all' })
-      })
-      
-      alert('Cache cleared! Refreshing jobs...')
-      loadJobs(1, searchTerm, true)
+      const response = await fetch('/api/upwork/test')
+      const data = await response.json()
+      console.log('🧪 Test results:', data)
+      alert('Check console for test results')
     } catch (error) {
-      alert('Failed to clear cache')
+      console.error('Test failed:', error)
     }
   }
 
@@ -222,6 +219,7 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-gray-900">Upwork Jobs Dashboard</h1>
               <p className="text-sm text-gray-600">
                 {upworkConnected ? '🔗 Connected to Upwork API' : 'Connect Upwork to see real jobs'}
+                {lastRefresh && <span className="ml-2 text-gray-500">• Last refresh: {lastRefresh}</span>}
               </p>
             </div>
             
@@ -239,19 +237,17 @@ export default function Dashboard() {
                 ) : (
                   <>
                     <span>🔄</span>
-                    <span>Refresh Jobs</span>
+                    <span>Refresh</span>
                   </>
                 )}
               </button>
               
-              {process.env.NODE_ENV === 'development' && (
-                <button 
-                  onClick={handleClearCache}
-                  className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700"
-                >
-                  Clear Cache
-                </button>
-              )}
+              <button 
+                onClick={runTest}
+                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+              >
+                🧪 Test API
+              </button>
             </div>
           </div>
         </div>
@@ -259,52 +255,38 @@ export default function Dashboard() {
         {/* Search Bar */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
           <form onSubmit={handleSearch} className="space-y-4">
-            <div className="flex items-center space-x-4">
-              <div className="flex-1">
-                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                  Search Upwork Jobs (Title, Description, Skills, Category)
-                </label>
-                <div className="flex items-center">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      id="search"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="e.g., React developer, web design, $500 budget..."
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
-                    </div>
-                  </div>
-                  <div className="flex space-x-3 ml-3">
-                    <button
-                      type="submit"
-                      disabled={jobsLoading}
-                      className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-semibold"
-                    >
-                      {jobsLoading ? 'Searching...' : '🔍 Search'}
-                    </button>
-                    {searchTerm && (
-                      <button
-                        type="button"
-                        onClick={handleClearSearch}
-                        className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300 transition-colors"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
+            <div className="flex items-center">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search jobs by title, skills, or category..."
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
+                />
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
                 </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  {searchTerm 
-                    ? `Searching for: "${searchTerm}"`
-                    : 'Search across all Upwork job posts'
-                  }
-                </p>
+              </div>
+              <div className="flex space-x-3 ml-3">
+                <button
+                  type="submit"
+                  disabled={jobsLoading}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Search
+                </button>
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
           </form>
@@ -324,7 +306,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold text-gray-900">{totalPages}</div>
             <div className="text-sm text-gray-600">Total Pages</div>
           </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-200">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="text-2xl font-bold text-gray-900">{upworkConnected ? '✅' : '❌'}</div>
             <div className="text-sm text-gray-600">Upwork Status</div>
           </div>
@@ -345,86 +327,12 @@ export default function Dashboard() {
           }`}>
             <div className="flex justify-between items-center">
               <span>{connectionError}</span>
-              <div className="flex gap-2">
-                <button 
-                  onClick={handleForceRefresh}
-                  className="ml-4 text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  Refresh
-                </button>
-                {connectionError.includes('cached') && (
-                  <button 
-                    onClick={handleClearCache}
-                    className="ml-2 text-sm px-3 py-1 rounded bg-yellow-600 text-white hover:bg-yellow-700"
-                  >
-                    Clear Cache
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Page {currentPage} of {totalPages} • {totalJobs.toLocaleString()} total jobs
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => handlePageChange(1)}
-                  disabled={currentPage === 1 || jobsLoading}
-                  className="px-3 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
-                >
-                  « First
-                </button>
-                <button
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1 || jobsLoading}
-                  className="px-3 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
-                >
-                  ‹ Prev
-                </button>
-                
-                {/* Page numbers */}
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum = currentPage - 2 + i
-                  if (pageNum < 1) pageNum = i + 1
-                  if (pageNum > totalPages) return null
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => handlePageChange(pageNum)}
-                      disabled={jobsLoading}
-                      className={`px-3 py-2 border rounded text-sm ${
-                        currentPage === pageNum
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  )
-                })}
-                
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages || jobsLoading}
-                  className="px-3 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
-                >
-                  Next ›
-                </button>
-                <button
-                  onClick={() => handlePageChange(totalPages)}
-                  disabled={currentPage === totalPages || jobsLoading}
-                  className="px-3 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
-                >
-                  Last »
-                </button>
-              </div>
+              <button 
+                onClick={handleForceRefresh}
+                className="ml-4 text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Refresh
+              </button>
             </div>
           </div>
         )}
@@ -446,25 +354,13 @@ export default function Dashboard() {
             {jobsLoading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">
-                  {searchTerm ? `Searching for "${searchTerm}"...` : 'Loading jobs from Upwork...'}
-                </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  This may take a moment as we fetch real-time data...
-                </p>
+                <p className="text-gray-600">Loading jobs from Upwork...</p>
               </div>
             ) : jobs.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-gray-400 mb-4 text-6xl">💼</div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                  {searchTerm ? 'No Jobs Found' : 'No Jobs Available'}
-                </h3>
-                <p className="text-gray-500 mb-6">
-                  {searchTerm 
-                    ? `Try different keywords or clear the search.`
-                    : 'Try refreshing or check your Upwork connection.'
-                  }
-                </p>
+                <h3 className="text-lg font-semibold text-gray-700 mb-2">No Jobs Available</h3>
+                <p className="text-gray-500 mb-6">Try refreshing or check your Upwork connection</p>
                 <button 
                   onClick={handleForceRefresh}
                   className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
@@ -482,9 +378,6 @@ export default function Dashboard() {
                   <div className="flex justify-between items-start mb-3">
                     <h3 className="font-semibold text-gray-900 text-lg hover:text-blue-600">
                       {job.title}
-                      {job.featured && <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Featured</span>}
-                      {job.urgent && <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 text-xs rounded">Urgent</span>}
-                      {job.verified && <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Verified</span>}
                     </h3>
                     <span className="font-semibold text-green-700 bg-green-50 px-3 py-1 rounded">
                       {job.budget}
@@ -492,25 +385,8 @@ export default function Dashboard() {
                   </div>
                   
                   <p className="text-gray-600 text-sm mb-3">
-                    {job.category} • {job.engagement} • {job.experienceLevel} • Posted: {job.postedDate}
+                    {job.category} • Posted: {job.postedDate}
                   </p>
-                  
-                  <div className="flex items-center space-x-4 mb-3">
-                    <div className="flex items-center space-x-1">
-                      <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                      </svg>
-                      <span className="text-sm text-gray-600">{job.client.name}</span>
-                    </div>
-                    {job.client.rating > 0 && (
-                      <div className="flex items-center space-x-1">
-                        <svg className="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                        </svg>
-                        <span className="text-sm text-gray-600">{job.client.rating} ({job.client.reviewsCount} reviews)</span>
-                      </div>
-                    )}
-                  </div>
                   
                   <p className="text-gray-700 mb-3 line-clamp-2">
                     {job.description}
@@ -518,18 +394,11 @@ export default function Dashboard() {
                   
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-2">
-                      {job.skills.slice(0, 5).map((skill, index) => (
+                      {job.skills.slice(0, 3).map((skill, index) => (
                         <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
                           {skill}
                         </span>
                       ))}
-                      {job.skills.length > 5 && (
-                        <span className="text-gray-500 text-sm">+{job.skills.length - 5} more</span>
-                      )}
-                      
-                      <span className="text-gray-500 text-sm">
-                        {job.proposals} proposals • {job.interviewCount} interviews • {job.hiresCount} hires
-                      </span>
                     </div>
                     
                     <button 
@@ -547,31 +416,6 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-
-        {/* Bottom Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center justify-center space-x-4">
-              <button
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1 || jobsLoading}
-                className="px-4 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-gray-600">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage === totalPages || jobsLoading}
-                className="px-4 py-2 border border-gray-300 rounded text-sm disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Job Proposal Popup */}
         {showPopup && selectedJob && user && (
