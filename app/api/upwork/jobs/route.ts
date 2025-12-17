@@ -5,8 +5,16 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// ================= SETTINGS =================
 const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+const MAX_JOBS = 300
+const CATEGORY_LIST = [
+  'Web Development',
+  'Mobile Development',
+  'Design & Creative',
+  'Writing',
+  'Customer Service',
+  'Sales & Marketing',
+]
 
 type JobItem = {
   id: string
@@ -22,20 +30,17 @@ type JobItem = {
   isRealJob: true
 }
 
-const cache: Record<
-  string,
-  { jobs: JobItem[]; time: number }
-> = {}
+const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// ================= FETCH FROM UPWORK =================
-async function fetchUpworkJobs(
+// Fetch jobs for a single category
+async function fetchJobsForCategory(
   accessToken: string,
+  category: string,
   search: string
 ): Promise<JobItem[]> {
-
   const graphqlBody = {
     query: `
-      query Jobs {
+      query {
         marketplaceJobPostingsSearch {
           edges {
             node {
@@ -66,25 +71,18 @@ async function fetchUpworkJobs(
   })
 
   if (!res.ok) {
-    const t = await res.text()
-    throw new Error(t)
+    const txt = await res.text()
+    throw new Error(txt)
   }
 
   const json: any = await res.json()
-
-  if (json.errors) {
-    throw new Error(json.errors[0]?.message || 'Upwork error')
-  }
-
-  const edges =
-    json.data?.marketplaceJobPostingsSearch?.edges || []
+  const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
 
   const jobs: JobItem[] = []
 
   for (const edge of edges) {
     const n = edge.node
-
-    // 🔍 keyword / title filter (server-side)
+    // Filter by search keyword
     if (search) {
       const q = search.toLowerCase()
       const match =
@@ -93,7 +91,6 @@ async function fetchUpworkJobs(
         n.skills?.some((s: any) =>
           s.name.toLowerCase().includes(q)
         )
-
       if (!match) continue
     }
 
@@ -113,7 +110,7 @@ async function fetchUpworkJobs(
         n.publishedDateTime || n.createdDateTime
       ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
-      category: n.category || 'General',
+      category: n.category || category,
       skills: (n.skills || []).map((s: any) => s.name),
       verified: true,
       source: 'upwork',
@@ -124,16 +121,11 @@ async function fetchUpworkJobs(
   return jobs
 }
 
-// ================= API HANDLER =================
+// ================= API Handler =================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
@@ -144,54 +136,50 @@ export async function GET(req: NextRequest) {
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-
-    if (tokenRes.rows.length === 0) {
+    if (tokenRes.rows.length === 0)
       return NextResponse.json({
         success: false,
         jobs: [],
         upworkConnected: false,
         message: 'Upwork not connected'
       })
-    }
 
-    if (
-      !refresh &&
-      cache[cacheKey] &&
-      Date.now() - cache[cacheKey].time < CACHE_TTL
-    ) {
+    // CACHE HIT
+    if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
         jobs: cache[cacheKey].jobs,
+        total: cache[cacheKey].jobs.length,
         cached: true,
-        upworkConnected: true
+        upworkConnected: true,
+        message: 'Loaded jobs from cache'
       })
     }
 
-    const jobs = await fetchUpworkJobs(
-      tokenRes.rows[0].access_token,
-      search
-    )
+    // Multi-category fetch
+    const accessToken = tokenRes.rows[0].access_token
+    let allJobs: JobItem[] = []
 
-    cache[cacheKey] = {
-      jobs,
-      time: Date.now()
+    for (const cat of CATEGORY_LIST) {
+      const catJobs = await fetchJobsForCategory(accessToken, cat, search)
+      allJobs.push(...catJobs)
+      if (allJobs.length >= MAX_JOBS) break
     }
+
+    allJobs = allJobs.slice(0, MAX_JOBS)
+    cache[cacheKey] = { jobs: allJobs, time: Date.now() }
 
     return NextResponse.json({
       success: true,
-      jobs,
-      total: jobs.length,
+      jobs: allJobs,
+      total: allJobs.length,
       cached: false,
-      upworkConnected: true
+      upworkConnected: true,
+      message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
     })
-
   } catch (e: any) {
     return NextResponse.json(
-      {
-        success: false,
-        jobs: [],
-        message: e.message || 'Server error'
-      },
+      { success: false, jobs: [], message: e.message },
       { status: 500 }
     )
   }
