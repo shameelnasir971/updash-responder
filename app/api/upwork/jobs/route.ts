@@ -1,4 +1,4 @@
-// app/api/upwork/jobs/route.ts - SIMPLE WORKING VERSION
+// app/api/upwork/jobs/route.ts - SAFE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -89,9 +89,9 @@ async function fetchJobsForCategory(
       const match =
         n.title?.toLowerCase().includes(q) ||
         n.description?.toLowerCase().includes(q) ||
-        n.skills?.some((s: any) =>
-          s.name.toLowerCase().includes(q)
-        )
+        (Array.isArray(n.skills) && n.skills.some((s: any) =>
+          s?.name?.toLowerCase().includes(q)
+        ))
       if (!match) continue
     }
 
@@ -112,7 +112,9 @@ async function fetchJobsForCategory(
       ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
       category: n.category || category,
-      skills: (n.skills || []).map((s: any) => s.name),
+      skills: Array.isArray(n.skills)
+        ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
+        : [],
       verified: true,
       source: 'upwork',
       isRealJob: true
