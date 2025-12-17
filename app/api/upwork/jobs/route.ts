@@ -102,20 +102,21 @@ async function fetchJobsForCategory(
       budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
     }
 
-  jobs.push({
-  id: n.id,
-  title: n.title || 'Job',
-  description: n.description || '',
-  budget,
-  postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString(),
-  proposals: n.totalApplicants || 0,
-  category: n.category || category,
-  skills: (n.skills || []).filter((s: any) => s && s.name).map((s: any) => s.name),
-  verified: true,
-  source: 'upwork',
-  isRealJob: true
-})
-
+    jobs.push({
+      id: n.id,
+      title: n.title || 'Job',
+      description: n.description || '',
+      budget,
+      postedDate: new Date(
+        n.publishedDateTime || n.createdDateTime
+      ).toLocaleDateString(),
+      proposals: n.totalApplicants || 0,
+      category: n.category || category,
+      skills: (n.skills || []).map((s: any) => s.name),
+      verified: true,
+      source: 'upwork',
+      isRealJob: true
+    })
   }
 
   return jobs
