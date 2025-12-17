@@ -1,32 +1,8 @@
-// app/api/upwork/route.ts
-
-
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../lib/auth'
 import pool from '../../../lib/database'
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-// Simple API Key based authentication (Direct API calls)
-async function makeUpworkApiCall(apiKey: string, endpoint: string) {
-  try {
-    const response = await fetch(`https://www.upwork.com/api/v3/${endpoint}`, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`)
-    }
-
-    return await response.json()
-  } catch (error) {
-    console.error('Upwork API call failed:', error)
-    throw error
-  }
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,65 +12,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    // Check if we have API Key (simple method)
-    const apiKey = process.env.UPWORK_API_KEY
-    const apiSecret = process.env.UPWORK_API_SECRET
-
-    // Method 1: If we have API Key, try direct API call
-    if (apiKey && apiSecret) {
-      try {
-        console.log('🔑 Attempting direct API call with API Key...')
-        
-        // Test API call - jobs search endpoint
-        const jobsData = await makeUpworkApiCall(apiKey, 'profiles/v2/jobs/search.json')
-        
-        return NextResponse.json({ 
-          success: true,
-          message: 'Upwork API connected successfully',
-          data: jobsData,
-          method: 'api_key'
-        })
-      } catch (apiError) {
-        console.log('API Key method failed, trying OAuth...')
-      }
-    }
-
-    // Method 2: OAuth Flow (if API Key doesn't work)
+    // Generate OAuth URL with ALL required scopes
     const clientId = process.env.UPWORK_CLIENT_ID
-    const clientSecret = process.env.UPWORK_CLIENT_SECRET
     const redirectUri = process.env.UPWORK_REDIRECT_URI
     
-    if (!clientId || !clientSecret || !redirectUri) {
-      console.error('Upwork API configuration missing:')
-      console.error('API Key:', apiKey ? 'Present' : 'Missing')
-      console.error('Client ID:', clientId ? 'Present' : 'Missing')
-      
+    if (!clientId || !redirectUri) {
       return NextResponse.json({ 
-        error: 'Upwork API not configured properly.',
-        details: {
-          api_key: apiKey ? 'Present' : 'Missing',
-          client_id: clientId ? 'Present' : 'Missing',
-          client_secret: clientSecret ? 'Present' : 'Missing'
-        }
+        error: 'Upwork API not configured properly.'
       }, { status: 500 })
     }
 
-    // Generate OAuth URL
+    // ✅ ALL NECESSARY SCOPES for full access
+    const scopes = [
+      'r_myprofile',          // Talent Profile - Read And Write Access
+      'r_workhistory',        // Talent Workhistory - Read Only Access
+      'r_jobs',               // Job Postings - Read-Only Access
+      'rw_jobs',              // Management Job Postings (client side)
+      'r_contracts',          // Common Entities - Read-Only Access
+      'rw_proposals',         // Client Proposals - Read And Write Access
+      'r_messages',           // Common Functionality - Read And Write Access
+      'r_viewuserdetails',    // View UserDetails
+      'r_marketplace_search'  // Read marketplace Job Postings (MOST IMPORTANT)
+    ].join(' ')
+
     const authUrl = new URL('https://www.upwork.com/ab/account-security/oauth2/authorize')
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-    // authUrl.searchParams.set('scope', 'r_jobs')      
-    const state = Buffer.from(Date.now().toString()).toString('base64')
+    authUrl.searchParams.set('scope', scopes)
+    
+    // Random state for security
+    const state = Buffer.from(`${Date.now()}_${Math.random()}`).toString('base64')
     authUrl.searchParams.set('state', state)
 
-    console.log('🔗 Upwork OAuth URL generated for user:', user.id)
+    console.log('🔗 Upwork OAuth URL generated with full scopes')
     
     return NextResponse.json({ 
+      success: true,
       url: authUrl.toString(),
-      message: 'Upwork OAuth URL generated successfully',
-      method: 'oauth'
+      message: 'Upwork OAuth URL generated successfully'
     })
+    
   } catch (error) {
     console.error('Upwork API error:', error)
     return NextResponse.json({ 
@@ -104,7 +62,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Add this POST method to your existing file
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -122,6 +79,16 @@ export async function POST(request: NextRequest) {
         [user.id]
       )
       
+      // Clear cache
+      try {
+        await fetch(`${process.env.NEXTAUTH_URL}/api/upwork/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      } catch (e) {
+        // Ignore cache clear errors
+      }
+      
       return NextResponse.json({ 
         success: true,
         message: 'Upwork account disconnected successfully' 
@@ -131,6 +98,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       error: 'Invalid action' 
     }, { status: 400 })
+    
   } catch (error) {
     console.error('Upwork POST error:', error)
     return NextResponse.json({ 

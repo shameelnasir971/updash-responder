@@ -1,4 +1,3 @@
-// app/api/upwork/jobs/route.ts - SIMPLE WORKING VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -6,205 +5,239 @@ import pool from '../../../../lib/database'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// ✅ SIMPLE CACHE SYSTEM
+// Cache system
 let jobsCache: any[] = []
 let cacheTimestamp: number = 0
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes cache
 
-// ✅ WORKING GraphQL Query (Confirmed by previous logs)
-async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
-  try {
-    console.log('🚀 Fetching Upwork jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All jobs')
-    
-    // ✅ SIMPLE QUERY - NO PAGINATION, NO FILTER (confirmed working)
-    const graphqlQuery = {
-      query: `
-        query GetMarketplaceJobs {
-          marketplaceJobPostingsSearch {
-            edges {
-              node {
+// Helper function to build GraphQL query with filters
+function buildGraphQLQuery(searchTerm?: string, page = 0) {
+  // ✅ Calculate date for last 30 days
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const isoDate = thirtyDaysAgo.toISOString()
+
+  // ✅ Build filter object
+  let filter = {}
+  
+  if (searchTerm) {
+    // Search by title, description, or skills
+    filter = {
+      or: [
+        { title: { contains: searchTerm } },
+        { description: { contains: searchTerm } },
+        { skills: { some: { name: { contains: searchTerm } } } }
+      ]
+    }
+  }
+
+  // Always filter by date (last 30 days)
+  filter = {
+    ...filter,
+    createdDateTime: { gte: isoDate }
+  }
+
+  return {
+    query: `
+      query GetMarketplaceJobs($first: Int, $after: String, $filter: MarketplaceJobPostingsSearchFilterInput) {
+        marketplaceJobPostingsSearch(
+          first: $first
+          after: $after
+          filter: $filter
+          sort: { field: CREATED_DATE_TIME, direction: DESC }
+        ) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          edges {
+            node {
+              id
+              title
+              description
+              amount {
+                rawValue
+                currency
+                displayValue
+              }
+              hourlyBudgetMin {
+                rawValue
+                currency
+                displayValue
+              }
+              hourlyBudgetMax {
+                rawValue
+                currency
+                displayValue
+              }
+              skills {
+                name
+              }
+              totalApplicants
+              category
+              createdDateTime
+              publishedDateTime
+              experienceLevel
+              engagement
+              duration
+              durationLabel
+              client {
                 id
-                title
-                description
-                amount {
-                  rawValue
-                  currency
-                  displayValue
+                displayName
+                feedbackScore
+                location {
+                  country
                 }
-                hourlyBudgetMin {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                hourlyBudgetMax {
-                  rawValue
-                  currency
-                  displayValue
-                }
-                skills {
-                  name
-                }
-                totalApplicants
-                category
-                createdDateTime
-                publishedDateTime
-                experienceLevel
-                engagement
-                duration
-                durationLabel
+                totalSpent
+                totalHires
               }
             }
           }
         }
-      `
-    }
-    
-    console.log('📤 Making GraphQL request...')
-    
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(graphqlQuery)
-    })
-    
-    console.log('📥 Response status:', response.status)
-    
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('❌ API request failed:', errorText.substring(0, 500))
-      return { 
-        success: false, 
-        error: `API error: ${response.status}`, 
-        jobs: []
       }
+    `,
+    variables: {
+      first: 1000, // ✅ Maximum allowed by Upwork
+      after: page > 0 ? `cursor_${page}` : null,
+      filter: filter
     }
+  }
+}
+
+// Fetch jobs from Upwork with pagination
+async function fetchAllUpworkJobs(accessToken: string, searchTerm?: string) {
+  try {
+    console.log('🚀 Fetching ALL Upwork jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All jobs')
     
-    const data = await response.json()
+    const allJobs: any[] = []
+    let hasNextPage = true
+    let page = 0
+    const maxPages = 10 // Safety limit
     
-    // Log response for debugging
-    console.log('📊 Response received, checking data...')
-    
-    if (data.errors) {
-      console.error('❌ GraphQL errors:', data.errors)
-      return { 
-        success: false, 
-        error: data.errors[0]?.message, 
-        jobs: []
-      }
-    }
-    
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
-    console.log(`✅ Found ${edges.length} raw job edges from Upwork`)
-    
-    if (edges.length === 0) {
-      console.log('⚠️ Upwork API returned 0 jobs')
-      return { 
-        success: true, 
-        jobs: [], 
-        error: null 
-      }
-    }
-    
-    // ✅ Format jobs with REAL data ONLY
-    const jobs = edges.map((edge: any) => {
-      const node = edge.node || {}
+    while (hasNextPage && page < maxPages) {
+      console.log(`📄 Fetching page ${page + 1}...`)
       
-      // ✅ REAL BUDGET
-      let budgetText = 'Budget not specified'
-      if (node.amount?.rawValue) {
-        const rawValue = parseFloat(node.amount.rawValue)
-        const currency = node.amount.currency || 'USD'
-        
-        if (currency === 'USD') {
-          budgetText = `$${rawValue.toFixed(2)}`
-        } else if (currency === 'EUR') {
-          budgetText = `€${rawValue.toFixed(2)}`
-        } else if (currency === 'GBP') {
-          budgetText = `£${rawValue.toFixed(2)}`
-        } else {
-          budgetText = `${rawValue.toFixed(2)} ${currency}`
-        }
-      } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
-        const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
-        const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
-        const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
-        
-        let currencySymbol = ''
-        if (currency === 'USD') currencySymbol = '$'
-        else if (currency === 'EUR') currencySymbol = '€'
-        else if (currency === 'GBP') currencySymbol = '£'
-        else currencySymbol = currency + ' '
-        
-        if (minVal === maxVal || maxVal === 0) {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}/hr`
-        } else {
-          budgetText = `${currencySymbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
-        }
-      }
+      const graphqlQuery = buildGraphQLQuery(searchTerm, page)
       
-      // ✅ REAL SKILLS
-      const realSkills = node.skills?.map((s: any) => s.name).filter(Boolean) || []
-      
-      // ✅ REAL DATE
-      const postedDate = node.createdDateTime || node.publishedDateTime
-      const formattedDate = postedDate ? 
-        new Date(postedDate).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }) : 
-        'Recently'
-      
-      // ✅ REAL CATEGORY
-      const category = node.category || 'General'
-      const cleanedCategory = category.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
-      
-      return {
-        // ✅ 100% REAL DATA - NO MOCK
-        id: node.id || `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        title: node.title || 'Job',
-        description: node.description || '',
-        budget: budgetText,
-        postedDate: formattedDate,
-        client: {
-          name: 'Client', // Generic, not fake company names
-          rating: 0,
-          country: 'Remote',
-          totalSpent: 0,
-          totalHires: 0
+      const response = await fetch('https://api.upwork.com/graphql', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
-        skills: realSkills.slice(0, 10), // Show more skills
-        proposals: node.totalApplicants || 0,
-        verified: true,
-        category: cleanedCategory,
-        jobType: node.engagement || node.durationLabel || 'Not specified',
-        experienceLevel: node.experienceLevel || 'Not specified',
-        source: 'upwork',
-        isRealJob: true
+        body: JSON.stringify(graphqlQuery)
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`❌ API error on page ${page}:`, response.status, errorText.substring(0, 200))
+        break
       }
-    })
-    
-    console.log(`✅ Formatted ${jobs.length} REAL jobs`)
-    
-    // ✅ Apply search filter CLIENT-SIDE (since Upwork API doesn't support search)
-    let filteredJobs = jobs
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase()
-      filteredJobs = jobs.filter((job: { title: string; description: string; skills: string[]; category: string }) => 
-        job.title.toLowerCase().includes(searchLower) ||
-        job.description.toLowerCase().includes(searchLower) ||
-        job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower)) ||
-        (job.category && job.category.toLowerCase().includes(searchLower))
-      )
-      console.log(`🔍 After client-side search: ${filteredJobs.length} jobs`)
+      
+      const data = await response.json()
+      
+      if (data.errors) {
+        console.error(`❌ GraphQL errors on page ${page}:`, data.errors)
+        break
+      }
+      
+      const searchResult = data.data?.marketplaceJobPostingsSearch
+      const edges = searchResult?.edges || []
+      
+      console.log(`✅ Page ${page + 1}: ${edges.length} jobs`)
+      
+      // Format jobs
+      const formattedJobs = edges.map((edge: any) => {
+        const node = edge.node || {}
+        
+        // Budget
+        let budgetText = 'Budget not specified'
+        if (node.amount?.rawValue) {
+          const rawValue = parseFloat(node.amount.rawValue)
+          const currency = node.amount.currency || 'USD'
+          budgetText = `${currency === 'USD' ? '$' : currency}${rawValue.toFixed(2)}`
+        } else if (node.hourlyBudgetMin?.rawValue || node.hourlyBudgetMax?.rawValue) {
+          const minVal = node.hourlyBudgetMin?.rawValue ? parseFloat(node.hourlyBudgetMin.rawValue) : 0
+          const maxVal = node.hourlyBudgetMax?.rawValue ? parseFloat(node.hourlyBudgetMax.rawValue) : minVal
+          const currency = node.hourlyBudgetMin?.currency || node.hourlyBudgetMax?.currency || 'USD'
+          const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency
+          
+          if (minVal === maxVal) {
+            budgetText = `${symbol}${minVal.toFixed(2)}/hr`
+          } else {
+            budgetText = `${symbol}${minVal.toFixed(2)}-${maxVal.toFixed(2)}/hr`
+          }
+        }
+        
+        // Date
+        const postedDate = node.createdDateTime || node.publishedDateTime
+        const formattedDate = postedDate ? 
+          new Date(postedDate).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }) : 
+          'Recently'
+        
+        // Client info (REAL from API)
+        const client = node.client || {}
+        
+        return {
+          id: node.id || `job_${Date.now()}_${Math.random()}`,
+          title: node.title || 'Job Title',
+          description: node.description || '',
+          budget: budgetText,
+          postedDate: formattedDate,
+          client: {
+            name: client.displayName || 'Client',
+            rating: client.feedbackScore || 0,
+            country: client.location?.country || 'Remote',
+            totalSpent: client.totalSpent || 0,
+            totalHires: client.totalHires || 0
+          },
+          skills: node.skills?.map((s: any) => s.name).filter(Boolean) || [],
+          proposals: node.totalApplicants || 0,
+          verified: true,
+          category: node.category || 'General',
+          jobType: node.engagement || node.durationLabel || 'Not specified',
+          experienceLevel: node.experienceLevel || 'Not specified',
+          source: 'upwork',
+          isRealJob: true,
+          createdAt: postedDate
+        }
+      })
+      
+      allJobs.push(...formattedJobs)
+      
+      // Check if there are more pages
+      hasNextPage = searchResult?.pageInfo?.hasNextPage || false
+      page++
+      
+      // If we have enough jobs, break
+      if (allJobs.length >= 100) {
+        console.log(`✅ Reached ${allJobs.length} jobs, stopping pagination`)
+        break
+      }
+      
+      // Wait a bit between requests to avoid rate limiting
+      if (hasNextPage) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
     }
+    
+    console.log(`🎉 Total jobs fetched: ${allJobs.length}`)
+    
+    // Sort by date (newest first)
+    allJobs.sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime()
+      const dateB = new Date(b.createdAt || 0).getTime()
+      return dateB - dateA
+    })
     
     return { 
       success: true, 
-      jobs: filteredJobs, 
+      jobs: allJobs, 
       error: null 
     }
     
@@ -218,7 +251,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string) {
   }
 }
 
-// ✅ MAIN API ENDPOINT
+// Main API endpoint
 export async function GET(request: NextRequest) {
   try {
     console.log('=== JOBS API CALLED ===')
@@ -256,61 +289,38 @@ export async function GET(request: NextRequest) {
     const accessToken = upworkResult.rows[0].access_token
     console.log('✅ Upwork access token found')
     
-    // Check cache
+    // Check cache (skip if search or force refresh)
     const now = Date.now()
     const cacheKey = search ? `search_${search}` : 'all'
     
-    if (!forceRefresh && jobsCache.length > 0 && (now - cacheTimestamp) < CACHE_DURATION) {
-      // Apply search filter to cached data
-      let cachedJobs = jobsCache
-      if (search) {
-        const searchLower = search.toLowerCase()
-        cachedJobs = jobsCache.filter(job => 
-          job.title.toLowerCase().includes(searchLower) ||
-          job.description.toLowerCase().includes(searchLower) ||
-          job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower))
-        )
-      }
-      
-      if (cachedJobs.length > 0) {
-        console.log('📦 Serving from cache...', cachedJobs.length, 'jobs')
-        return NextResponse.json({
-          success: true,
-          jobs: cachedJobs,
-          total: cachedJobs.length,
-          message: `✅ ${cachedJobs.length} jobs loaded (from cache${search ? `, search: "${search}"` : ''})`,
-          upworkConnected: true,
-          cached: true
-        })
-      }
+    if (!forceRefresh && !search && jobsCache.length > 0 && (now - cacheTimestamp) < CACHE_DURATION) {
+      console.log('📦 Serving from cache...', jobsCache.length, 'jobs')
+      return NextResponse.json({
+        success: true,
+        jobs: jobsCache.slice(0, 200), // Limit to 200 for performance
+        total: jobsCache.length,
+        message: `✅ ${jobsCache.length} jobs loaded (from cache)`,
+        upworkConnected: true,
+        cached: true
+      })
     }
     
     console.log('🔄 Fetching fresh data from Upwork API...')
     
     // Fetch jobs from Upwork
-    const result = await fetchUpworkJobs(accessToken, search)
+    const result = await fetchAllUpworkJobs(accessToken, search)
     
     if (!result.success) {
       console.error('❌ Failed to fetch jobs:', result.error)
       
       // If cache exists, return cache even with error
-      if (jobsCache.length > 0) {
+      if (!search && jobsCache.length > 0) {
         console.log('⚠️ Using cached data due to API error')
-        let cachedJobs = jobsCache
-        if (search) {
-          const searchLower = search.toLowerCase()
-          cachedJobs = jobsCache.filter(job => 
-            job.title.toLowerCase().includes(searchLower) ||
-            job.description.toLowerCase().includes(searchLower) ||
-            job.skills.some((skill: string) => skill.toLowerCase().includes(searchLower))
-          )
-        }
-        
         return NextResponse.json({
           success: true,
-          jobs: cachedJobs,
-          total: cachedJobs.length,
-          message: `⚠️ Using cached data (API error: ${result.error})`,
+          jobs: jobsCache.slice(0, 200),
+          total: jobsCache.length,
+          message: `⚠️ Using cached data (API error)`,
           upworkConnected: true,
           cached: true
         })
@@ -331,21 +341,18 @@ export async function GET(request: NextRequest) {
       console.log(`💾 Updated cache with ${result.jobs.length} jobs`)
     }
     
-    // Prepare message
-    let message = ''
-    if (search) {
-      message = result.jobs.length > 0
+    // Prepare response
+    const jobsToReturn = search ? result.jobs : result.jobs.slice(0, 200) // Limit non-search results
+    
+    const message = search
+      ? result.jobs.length > 0
         ? `✅ Found ${result.jobs.length} jobs for "${search}"`
         : `❌ No jobs found for "${search}"`
-    } else {
-      message = result.jobs.length > 0
-        ? `✅ Loaded ${result.jobs.length} real jobs from Upwork`
-        : '❌ No jobs found'
-    }
+      : `✅ Loaded ${result.jobs.length} real jobs from Upwork (last 30 days)`
     
     return NextResponse.json({
       success: true,
-      jobs: result.jobs,
+      jobs: jobsToReturn,
       total: result.jobs.length,
       message: message,
       upworkConnected: true,
@@ -360,7 +367,7 @@ export async function GET(request: NextRequest) {
       console.log('⚠️ Returning cached data due to error')
       return NextResponse.json({
         success: true,
-        jobs: jobsCache,
+        jobs: jobsCache.slice(0, 200),
         total: jobsCache.length,
         message: `⚠️ Using cached data (Error: ${error.message})`,
         upworkConnected: true,
@@ -376,7 +383,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ✅ CLEAR CACHE ENDPOINT
+// Clear cache endpoint
 export async function POST(request: NextRequest) {
   try {
     jobsCache = []
