@@ -79,8 +79,9 @@ export default function Dashboard() {
     try {
       console.log('🔄 Loading jobs...', search ? `Search: "${search}"` : 'All jobs')
       
-     const url = `/api/upwork/jobs${search ? `?search=${encodeURIComponent(search)}&refresh=true` : '?refresh=true'}`
-
+      const url = `/api/upwork/jobs${search || forceRefresh ? '?' : ''}${
+        search ? `search=${encodeURIComponent(search)}${forceRefresh ? '&' : ''}` : ''
+      }${forceRefresh ? 'refresh=true' : ''}`
       
       console.log('📤 Fetching from:', url)
       
