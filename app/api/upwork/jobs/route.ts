@@ -16,10 +16,10 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
     const variables: any = {
       searchType: "USER_JOBS_SEARCH",
       marketPlaceJobFilter: {
-        q: searchTerm ?? ""  // Empty for all, keyword for search
+        q: searchTerm ?? ""  // Empty string for all recent jobs
       },
       sortAttributes: [
-        { field: "POSTED_DATE", direction: "DESC" }  // Newest first
+        { field: "RECENCY", direction: "DESC" }  // Newest first
       ],
       pagination: {
         first: 50
@@ -117,7 +117,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
     const edges = connection?.edges || []
     const pageInfo = connection?.pageInfo || {}
 
-    console.log(`✅ ${edges.length} jobs fetched`)
+    console.log(`✅ ${edges.length} jobs fetched this page`)
 
     const jobs = edges.map((edge: any) => {
       const n = edge.node
