@@ -11,7 +11,7 @@ const CACHE_DURATION = 5 * 60 * 1000
 
 async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCursor?: string) {
   try {
-    console.log('🚀 Fetching jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All recent jobs')
+    console.log('🚀 Fetching jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All recent jobs (no filter)')
 
     const variables: any = {
       searchType: "USER_JOBS_SEARCH",
@@ -23,12 +23,11 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
       }
     }
 
-    // For search: add q field
-    // For all jobs: omit marketPlaceJobFilter completely (null)
+    // Only add filter if search term exists
     if (searchTerm) {
       variables.marketPlaceJobFilter = { q: searchTerm }
     }
-    // else: no marketPlaceJobFilter → all recent jobs
+    // For all jobs: NO marketPlaceJobFilter at all
 
     if (afterCursor) {
       variables.pagination.after = afterCursor
@@ -121,7 +120,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
     const edges = connection?.edges || []
     const pageInfo = connection?.pageInfo || {}
 
-    console.log(`✅ ${edges.length} jobs fetched this page`)
+    console.log(`✅ ${edges.length} jobs fetched`)
 
     const jobs = edges.map((edge: any) => {
       const n = edge.node
@@ -238,7 +237,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: false,
       jobs: jobsCache,
-      message: 'Error – using cached jobs if available'
+      message: 'Error – using cache'
     })
   }
 }
