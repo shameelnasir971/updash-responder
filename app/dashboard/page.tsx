@@ -373,11 +373,16 @@ export default function Dashboard() {
                   
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-2">
-                      {job.skills.slice(0, 5).map((skill, index) => (
-                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
-                          {skill}
-                        </span>
-                      ))}
+                     {Array.isArray(job.skills) && job.skills.length > 0 ? (
+  job.skills.slice(0, 5).map((skill, index) => (
+    <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
+      {skill || 'Unknown Skill'}
+    </span>
+  ))
+) : (
+  <span className="text-gray-400 text-sm">No skills listed</span>
+)}
+
                     </div>
                     
                     <button 
