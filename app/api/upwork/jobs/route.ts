@@ -16,7 +16,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
     const variables: any = {
       searchType: "USER_JOBS_SEARCH",
       marketPlaceJobFilter: {
-        q: searchTerm || ""  // Empty string for all recent jobs, keyword for search
+        q: searchTerm ?? ""  // Empty string for all recent, keyword for search
       },
       sortAttributes: [
         { field: "RECENCY", direction: "DESC" }
