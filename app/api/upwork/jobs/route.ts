@@ -11,10 +11,13 @@ const CACHE_DURATION = 5 * 60 * 1000
 
 async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCursor?: string) {
   try {
-    console.log('🚀 Fetching jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All recent jobs (no filter)')
+    console.log('🚀 Fetching jobs...', searchTerm ? `Search: "${searchTerm}"` : 'All recent jobs')
 
     const variables: any = {
       searchType: "USER_JOBS_SEARCH",
+      marketPlaceJobFilter: {
+        q: searchTerm || ""  // Empty string for all recent jobs, keyword for search
+      },
       sortAttributes: [
         { field: "RECENCY", direction: "DESC" }
       ],
@@ -23,12 +26,6 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
       }
     }
 
-    // Only add filter if search term exists
-    if (searchTerm) {
-      variables.marketPlaceJobFilter = { q: searchTerm }
-    }
-    // For all jobs: NO marketPlaceJobFilter at all
-
     if (afterCursor) {
       variables.pagination.after = afterCursor
     }
@@ -36,7 +33,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
     const graphqlQuery = {
       query: `
         query MarketplaceJobPostingsSearch(
-          $marketPlaceJobFilter: MarketplaceJobPostingsSearchFilter
+          $marketPlaceJobFilter: MarketplaceJobPostingsSearchFilter!
           $searchType: MarketplaceJobPostingSearchType!
           $sortAttributes: [MarketplaceJobPostingSearchSortAttribute!]
           $pagination: ConnectionPagination
@@ -120,7 +117,7 @@ async function fetchUpworkJobs(accessToken: string, searchTerm?: string, afterCu
     const edges = connection?.edges || []
     const pageInfo = connection?.pageInfo || {}
 
-    console.log(`✅ ${edges.length} jobs fetched`)
+    console.log(`✅ ${edges.length} jobs fetched this page`)
 
     const jobs = edges.map((edge: any) => {
       const n = edge.node
