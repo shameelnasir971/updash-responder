@@ -18,84 +18,39 @@ export async function GET() {
     )
     
     if (upworkResult.rows.length === 0) {
-      return NextResponse.json({ error: 'No Upwork connection' })
+      return NextResponse.json({
+        success: false,
+        connected: false,
+        message: 'No Upwork account connected'
+      })
     }
     
     const accessToken = upworkResult.rows[0].access_token
-    const upworkUserId = upworkResult.rows[0].upwork_user_id
     
-    // Test multiple endpoints
-    const endpoints = [
-      {
-        url: 'https://www.upwork.com/ab/feed/jobs/rss?q=web+development',
-        method: 'GET'
+    // Test API call
+    const testResponse = await fetch('https://www.upwork.com/api/auth/v1/info.json', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
       },
-      {
-        url: 'https://www.upwork.com/api/profiles/v2/jobs/search.json?q=javascript',
-        method: 'GET'
-      },
-      {
-        url: 'https://api.upwork.com/graphql',
-        method: 'POST',
-        body: JSON.stringify({ query: '{ __typename }' }) // Simple test query
-      },
-      {
-        url: 'https://www.upwork.com/api/auth/v1/info.json',
-        method: 'GET'
-      }
-    ]
+    })
     
-    const results = []
-    
-    for (const endpoint of endpoints) {
-      try {
-        const headers: any = {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json'
-        }
-        
-        const options: any = {
-          method: endpoint.method,
-          headers
-        }
-        
-        if (endpoint.body) {
-          headers['Content-Type'] = 'application/json'
-          options.body = endpoint.body
-        }
-        
-        const response = await fetch(endpoint.url, options)
-        
-        let data = null
-        try {
-          data = await response.json()
-        } catch {
-          data = await response.text()
-        }
-        
-        results.push({
-          endpoint: endpoint.url,
-          status: response.status,
-          ok: response.ok,
-          data: typeof data === 'string' ? data.substring(0, 500) + '...' : data
-        })
-      } catch (e: any) {
-        results.push({
-          endpoint: endpoint.url,
-          error: e.message
-        })
-      }
-    }
+    const testData = await testResponse.json()
     
     return NextResponse.json({
-      user: user.email,
-      upworkUserId: upworkUserId,
-      tokenExists: !!accessToken,
-      tokenPreview: accessToken ? `${accessToken.substring(0, 20)}...` : 'No token',
-      apiTests: results
+      success: true,
+      connected: true,
+      tokenValid: testResponse.ok,
+      status: testResponse.status,
+      data: testData,
+      message: testResponse.ok ? '✅ Token is valid' : '❌ Token invalid'
     })
     
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({
+      success: false,
+      connected: false,
+      error: error.message
+    }, { status: 500 })
   }
 }
