@@ -1,4 +1,3 @@
-// components/JobProposalPopup.tsx - VERIFIED REAL DATA
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -100,10 +99,13 @@ export default function JobProposalPopup({
         postedDate: job.postedDate
       }
       
-      // Make API call
+      // Make API call WITH ACCEPT HEADER FIX
       const response = await fetch('/api/proposals/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'  // ✅ ADDED THIS LINE
+        },
         body: JSON.stringify(jobData)
       })
 
@@ -159,7 +161,10 @@ export default function JobProposalPopup({
       
       const response = await fetch('/api/proposals/save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'  // ✅ ADDED THIS LINE
+        },
         body: JSON.stringify({
           jobId: job.id,
           jobTitle: job.title,
@@ -209,7 +214,10 @@ export default function JobProposalPopup({
       
       const response = await fetch('/api/proposals/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'  // ✅ ADDED THIS LINE
+        },
         body: JSON.stringify({
           jobId: job.id,
           jobTitle: job.title,
