@@ -17,13 +17,6 @@ interface Job {
   description: string
   budget: string
   postedDate: string
-  client: {
-    name: string
-    rating: number
-    country: string
-    totalSpent: number
-    totalHires: number
-  }
   skills: string[]
   proposals: number
   verified: boolean
@@ -31,7 +24,17 @@ interface Job {
   duration?: string
   source?: string
   isRealJob?: boolean
+
+  // ✅ OPTIONAL — because Upwork search does NOT return it
+  client?: {
+    name?: string
+    rating?: number
+    country?: string
+    totalSpent?: number
+    totalHires?: number
+  }
 }
+
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
