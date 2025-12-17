@@ -1,5 +1,4 @@
-// app/api/proposals/generate/route.ts 
-// app/api/proposals/generate/route.ts - FIXED VERSION
+// app/api/proposals/generate/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCurrentUser } from '../../../../lib/auth'
@@ -9,7 +8,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY, // Tumhari paid key yahan se use ho rahi hai
 })
 
 export async function POST(request: NextRequest) {
@@ -19,155 +18,158 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Please login first' }, { status: 401 })
     }
 
-    const { jobId, jobTitle, jobDescription, clientInfo, budget, skills } = await request.json()
+    const {
+      jobId,
+      jobTitle,
+      jobDescription,
+      budget,
+      skills,
+      category,
+      postedDate,
+    } = await request.json()
 
-    // ✅ Validation
     if (!jobId || !jobTitle || !jobDescription) {
-      return NextResponse.json({ error: 'Job ID, title, and description are required' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing job details' }, { status: 400 })
     }
 
-    console.log('🤖 [PROPOSAL REQUEST] Generating for job:', jobId)
+    console.log('Generating REAL AI proposal for job:', jobId)
 
-    // ✅ Step 1: User ki Personal Details & Templates Load Karo (Prompts Page se)
+    // Step 1: Load user's saved prompts from database
     const settingsResult = await pool.query(
       'SELECT basic_info, proposal_templates, ai_settings FROM prompt_settings WHERE user_id = $1',
       [user.id]
     )
 
-    // Default settings agar database mein na ho
-    let userBasicInfo = {
-      specialty: 'Full Stack Development',
-      provisions: 'Web Applications, Mobile Apps, API Development',
-      hourlyRate: '$25-50',
-      name: user.name || 'Freelancer',
-      company: user.company_name || ''
+    const defaultBasicInfo = {
+      name: user.name || 'Professional Freelancer',
+      specialty: 'Full Stack Web Development',
+      provisions: 'High-quality web applications, APIs, and databases',
+      hourlyRate: '$30-60',
+      company: user.company_name || '',
     }
-    let userAISettings = { model: 'gpt-4', temperature: 0.3, maxTokens: 600 }
+
+    const defaultAISettings = {
+      model: 'gpt-4-turbo',
+      temperature: 0.4,
+      maxTokens: 800,
+    }
+
+    let basicInfo = defaultBasicInfo
+    let aiSettings = defaultAISettings
+    let mainTemplate = `Write a highly personalized, professional Upwork proposal that:
+- Directly addresses the client's specific needs
+- Highlights 2-3 most relevant experiences
+- Shows deep understanding of the project
+- Ends with a clear call-to-action
+- Uses friendly but professional tone
+Keep it under 300 words.`
 
     if (settingsResult.rows.length > 0) {
-      const dbSettings = settingsResult.rows[0]
-      userBasicInfo = { ...userBasicInfo, ...(dbSettings.basic_info || {}) }
-      userAISettings = { ...userAISettings, ...(dbSettings.ai_settings || {}) }
+      const db = settingsResult.rows[0]
+      basicInfo = { ...defaultBasicInfo, ...(db.basic_info || {}) }
+      aiSettings = { ...defaultAISettings, ...(db.ai_settings || {}) }
+      if (db.proposal_templates && db.proposal_templates.length > 0) {
+        mainTemplate = db.proposal_templates[0].content // First template as main
+      }
     }
 
-    // ✅ Step 2: SMART PROMPT Banayein (Job Details + User Profile)
-// Prompt mein is tarah update karein:
-const smartPrompt = `
-TASK: Write a HIGHLY TARGETED and PROFESSIONAL Upwork proposal...
+    // Step 2: Build SMART, TARGETED prompt for OpenAI
+    const systemPrompt = `You are a top-rated Upwork freelancer with 100% job success score. 
+You write winning proposals that get interviews. 
+You NEVER use generic templates. 
+You always personalize based on the exact job description.`
 
---- JOB TO APPLY FOR ---
-JOB TITLE: ${jobTitle}
+    const userPrompt = `
+${mainTemplate}
 
-FULL DESCRIPTION:
+--- JOB DETAILS ---
+Title: ${jobTitle}
+Category: ${category || 'Not specified'}
+Budget: ${budget}
+Posted: ${postedDate}
+Skills Required: ${Array.isArray(skills) ? skills.join(', ') : 'Various'}
+
+Job Description:
 ${jobDescription}
 
-BUDGET: ${budget || 'Not specified'}
-REQUIRED SKILLS: ${Array.isArray(skills) ? skills.join(', ') : skills || 'Various'}
-// ❌ Client name aur rating hata do kyunki real nahi hai
-// CLIENT INFO: Not available from Upwork API
+--- MY PROFILE ---
+Name: ${basicInfo.name}
+Specialty: ${basicInfo.specialty}
+Services: ${basicInfo.provisions}
+Rate: ${basicInfo.hourlyRate}
+${basicInfo.company ? `Company: ${basicInfo.company}` : ''}
 
---- MY PROFILE TO USE ---
-MY NAME: ${userBasicInfo.name}
-MY SPECIALTY: ${userBasicInfo.specialty}
-...`;
+Write the proposal now.
+`
 
-    console.log('📝 [PROPOSAL REQUEST] Calling OpenAI with smart prompt...')
-
-    // ✅ Step 3: OpenAI ko Call Karein (NO FALLBACK)
+    // Step 3: Call REAL OpenAI (no fallback)
     const completion = await openai.chat.completions.create({
-      model: userAISettings.model,
+      model: aiSettings.model,
       messages: [
-        {
-          role: "system",
-          content: "You are a top-rated Upwork freelancer who writes compelling, personalized proposals that win projects. You avoid generic phrases and focus on the client's specific problems."
-        },
-        { role: "user", content: smartPrompt }
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ],
-      max_tokens: userAISettings.maxTokens,
-      temperature: userAISettings.temperature,
+      temperature: aiSettings.temperature,
+      max_tokens: aiSettings.maxTokens,
     })
 
-    let proposal = completion.choices[0]?.message?.content
+    const proposal = completion.choices[0]?.message?.content?.trim()
 
     if (!proposal) {
-      console.error('❌ [PROPOSAL REQUEST] OpenAI returned empty response.')
       return NextResponse.json({
         success: false,
-        error: 'AI could not generate a proposal. Please try again.',
-        proposal: null
+        error: 'AI returned empty response. Try again.',
       }, { status: 500 })
     }
 
-    // ✅ Step 4: Final Cleanup (FIX Duplicate "Best regards")
-    // Pehle check karein kitni baar "Best regards" aya hai
-    const bestRegardsRegex = /(Best\s+regards,|Regards,|Sincerely,)/gi
-    const matches = proposal.match(bestRegardsRegex)
-
-    // Agar ek se zyada baar aya hai, to last wale ke baad ka sab kuch hata do
-    if (matches && matches.length > 1) {
-      const parts = proposal.split(bestRegardsRegex)
-      // Last signature block ko rakhne ke liye
-      proposal = parts.slice(0, 5).join('') // Pehla "Best regards," aur uske aage ka text rakho
-      // Ensure it ends with the user's name
-      if (!proposal.trim().endsWith(userBasicInfo.name)) {
-        proposal += `\n${userBasicInfo.name}`
-      }
-    }
-    // Ensure it ends properly
-    proposal = proposal.trim()
-
-    console.log('✅ [PROPOSAL REQUEST] Proposal successfully generated.')
-
-    // ✅ Step 5: Database mein Save Karein (Optional, for history)
+    // Step 4: Save draft to history (for future training & user access)
     try {
       await pool.query(
-        `INSERT INTO proposals (user_id, job_id, job_title, job_description, client_info, budget, skills, generated_proposal, ai_model, status, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'generated', NOW())`,
+        `INSERT INTO proposals (
+          user_id, job_id, job_title, job_description, budget, skills,
+          generated_proposal, ai_model, status, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'generated', NOW())`,
         [
-          user.id, jobId, jobTitle, jobDescription,
-          clientInfo || {}, budget || 'Not specified',
-          skills || [], proposal, userAISettings.model
+          user.id,
+          jobId,
+          jobTitle,
+          jobDescription,
+          budget,
+          skills || [],
+          proposal,
+          aiSettings.model,
         ]
       )
-      console.log('💾 [PROPOSAL REQUEST] Draft saved to database.')
-    } catch (dbError) {
-      console.error('⚠️ [PROPOSAL REQUEST] Could not save to DB, but proposal was created:', dbError)
-      // Database error par proposal generation fail nahi honi chahiye
+    } catch (dbErr) {
+      console.warn('Could not save proposal draft to DB:', dbErr)
+      // Not critical — proposal already generated
     }
 
-    // ✅ Step 6: Final Response
+    console.log('REAL AI Proposal generated successfully')
+
     return NextResponse.json({
       success: true,
-      proposal: proposal,
-      message: 'Professional, targeted proposal generated successfully!',
+      proposal,
       details: {
-        model: userAISettings.model,
+        model: aiSettings.model,
         length: proposal.length,
-        tailored: true // Confirm it's not a fallback
-      }
+        source: 'Real OpenAI API',
+        tailored: true,
+      },
     })
-
   } catch (error: any) {
-    // ✅ YEH FINAL CATCH BLOCK HAI. Yeh sirf UNEXPECTED errors ke liye hai.
-    console.error('❌ [PROPOSAL REQUEST] CRITICAL ERROR in route:', error)
+    console.error('Proposal generation failed:', error)
 
-    // ✅ OPENAI SPECIFIC ERROR Check (Network, Auth, etc.)
     if (error instanceof OpenAI.APIError) {
       return NextResponse.json({
         success: false,
-        error: `OpenAI API Error: ${error.message}. Please check your API key and balance.`,
-        proposal: null
+        error: `OpenAI Error: ${error.message}. Check your API key or balance.`,
       }, { status: 500 })
     }
 
-    // ✅ GENERAL SERVER ERROR
     return NextResponse.json({
       success: false,
-      error: 'Failed to generate proposal: ' + (error.message || 'Unknown server error.'),
-      proposal: null
+      error: 'Failed to generate proposal. Please try again.',
     }, { status: 500 })
   }
 }
-
-// ❌❌❌ "generateFallbackProposal" FUNCTION KO POORA DELETE KAR DEIN. ❌❌❌
-// ❌❌❌ "selectBestTemplate" FUNCTION BHI DELETE KAR SAKTE HAIN AGAR USE NAHI HO RAHA. ❌❌❌
