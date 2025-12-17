@@ -117,11 +117,11 @@ export default function Dashboard() {
         }
         
         if (data.jobs?.length === 0) {
-          setConnectionError(search 
-            ? `No jobs found for "${search}" in last month. Try different keywords.`
-            : 'No jobs found in last month. Upwork API might be limiting requests.'
-          )
-        } else if (data.jobs?.length > 0) {
+  setConnectionError(search 
+    ? `No jobs found for "${search}". Try different keywords.`
+    : 'No jobs found. Upwork API might be limiting requests.'
+  )
+} else if (data.jobs?.length > 0) {
           const message = data.cached 
             ? `${data.message} (cached)`
             : data.message
