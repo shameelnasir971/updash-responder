@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx - SIMPLIFIED VERSION
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -19,26 +20,17 @@ interface Job {
   client: {
     name: string
     rating: number
-    reviewsCount: number
     country: string
     totalSpent: number
     totalHires: number
   }
   skills: string[]
   proposals: number
-  hiresCount: number
-  interviewCount: number
   verified: boolean
-  featured: boolean
-  urgent: boolean
-  private: boolean
-  category: string
-  subcategory: string
-  engagement: string
-  duration: string
-  experienceLevel: string
-  source: string
-  isRealJob: boolean
+  category?: string
+  duration?: string
+  source?: string
+  isRealJob?: boolean
 }
 
 export default function Dashboard() {
@@ -55,11 +47,8 @@ export default function Dashboard() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showPopup, setShowPopup] = useState(false)
   
-  const [totalJobs, setTotalJobs] = useState(0)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [jobsPerPage] = useState(50)
-  const [lastRefresh, setLastRefresh] = useState<string>('')
+  const [refreshCount, setRefreshCount] = useState(0)
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
 
   useEffect(() => {
     checkAuth()
@@ -72,7 +61,7 @@ export default function Dashboard() {
       
       if (data.authenticated && data.user) {
         setUser(data.user)
-        loadJobs(1, '')
+        loadJobs()
       } else {
         window.location.href = '/auth/login'
       }
@@ -83,20 +72,16 @@ export default function Dashboard() {
     }
   }
 
-  const loadJobs = async (page = 1, search = '', forceRefresh = false) => {
+  const loadJobs = async (search = '', forceRefresh = false) => {
     setJobsLoading(true)
     setConnectionError('')
-    setCurrentPage(page)
     
     try {
-      console.log('🔄 Loading jobs...', 
-        search ? `Search: "${search}"` : 'All jobs',
-        `Page: ${page}`
-      )
+      console.log('🔄 Loading jobs...', search ? `Search: "${search}"` : 'All jobs')
       
-      let url = `/api/upwork/jobs?page=${page}&limit=${jobsPerPage}`
-      if (search) url += `&search=${encodeURIComponent(search)}`
-      if (forceRefresh) url += `&refresh=true`
+      const url = `/api/upwork/jobs${search || forceRefresh ? '?' : ''}${
+        search ? `search=${encodeURIComponent(search)}${forceRefresh ? '&' : ''}` : ''
+      }${forceRefresh ? 'refresh=true' : ''}`
       
       console.log('📤 Fetching from:', url)
       
@@ -112,17 +97,13 @@ export default function Dashboard() {
       console.log('📊 Jobs Data:', {
         success: data.success,
         count: data.jobs?.length,
-        total: data.total,
-        pages: data.totalPages,
-        message: data.message
+        message: data.message,
+        cached: data.cached || false
       })
 
       if (data.success) {
         setJobs(data.jobs || [])
-        setTotalJobs(data.total || 0)
-        setTotalPages(data.totalPages || 1)
         setUpworkConnected(data.upworkConnected || false)
-        setLastRefresh(new Date().toLocaleTimeString())
         
         if (data.jobs?.length === 0) {
           setConnectionError(search 
@@ -131,7 +112,7 @@ export default function Dashboard() {
           )
         } else if (data.jobs?.length > 0) {
           const message = data.cached 
-            ? `${data.message} (cached - refresh for latest)`
+            ? `${data.message} (cached)`
             : data.message
           
           setConnectionError(message)
@@ -140,18 +121,15 @@ export default function Dashboard() {
       } else {
         setConnectionError(data.message || 'Failed to load jobs')
         setJobs([])
-        setTotalJobs(0)
-        setTotalPages(1)
       }
       
     } catch (error: any) {
       console.error('❌ Load jobs error:', error)
       setConnectionError('Network error. Please check connection.')
       setJobs([])
-      setTotalJobs(0)
-      setTotalPages(1)
     } finally {
       setJobsLoading(false)
+      setLastRefreshTime(new Date())
     }
   }
 
@@ -159,27 +137,23 @@ export default function Dashboard() {
     e.preventDefault()
     if (searchInput.trim()) {
       setSearchTerm(searchInput.trim())
-      loadJobs(1, searchInput.trim(), true)
+      loadJobs(searchInput.trim(), true)
     } else {
       setSearchInput('')
       setSearchTerm('')
-      loadJobs(1, '', true)
+      loadJobs('', true)
     }
   }
 
   const handleClearSearch = () => {
     setSearchInput('')
     setSearchTerm('')
-    loadJobs(1, '', true)
+    loadJobs('', true)
   }
 
   const handleForceRefresh = () => {
-    loadJobs(currentPage, searchTerm, true)
-  }
-
-  const handlePageChange = (page: number) => {
-    if (page < 1 || page > totalPages) return
-    loadJobs(page, searchTerm, false)
+    loadJobs(searchTerm, true)
+    setRefreshCount(prev => prev + 1)
   }
 
   const handleJobClick = (job: Job) => {
@@ -187,15 +161,12 @@ export default function Dashboard() {
     setShowPopup(true)
   }
 
-  const runTest = async () => {
-    try {
-      const response = await fetch('/api/upwork/test')
-      const data = await response.json()
-      console.log('🧪 Test results:', data)
-      alert('Check console for test results')
-    } catch (error) {
-      console.error('Test failed:', error)
-    }
+  const formatTimeAgo = (date: Date) => {
+    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000)
+    if (seconds < 60) return 'just now'
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`
+    return `${Math.floor(seconds / 86400)} days ago`
   }
 
   if (loading) {
@@ -219,96 +190,96 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-gray-900">Upwork Jobs Dashboard</h1>
               <p className="text-sm text-gray-600">
                 {upworkConnected ? '🔗 Connected to Upwork API' : 'Connect Upwork to see real jobs'}
-                {lastRefresh && <span className="ml-2 text-gray-500">• Last refresh: {lastRefresh}</span>}
               </p>
             </div>
             
-            <div className="flex gap-3">
-              <button 
-                onClick={handleForceRefresh}
-                disabled={jobsLoading}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
-              >
-                {jobsLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>Refreshing...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>🔄</span>
-                    <span>Refresh</span>
-                  </>
-                )}
-              </button>
-              
-              <button 
-                onClick={runTest}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
-              >
-                🧪 Test API
-              </button>
-            </div>
+            <button 
+              onClick={handleForceRefresh}
+              disabled={jobsLoading}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
+            >
+              {jobsLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Refreshing...</span>
+                </>
+              ) : (
+                <>
+                  <span>🔄</span>
+                  <span>Refresh Jobs</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
         {/* Search Bar */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
           <form onSubmit={handleSearch} className="space-y-4">
-            <div className="flex items-center">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search jobs by title, skills, or category..."
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
-                />
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
+            <div className="flex items-center space-x-4">
+              <div className="flex-1">
+                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
+                  Search Upwork Jobs
+                </label>
+                <div className="flex items-center">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      id="search"
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                      placeholder="Search by job title, description, or skills..."
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-12"
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="flex space-x-3 ml-3">
+                    <button
+                      type="submit"
+                      disabled={jobsLoading}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-semibold"
+                    >
+                      {jobsLoading ? 'Searching...' : '🔍 Search'}
+                    </button>
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={handleClearSearch}
+                        className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="flex space-x-3 ml-3">
-                <button
-                  type="submit"
-                  disabled={jobsLoading}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  Search
-                </button>
-                {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={handleClearSearch}
-                    className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-300"
-                  >
-                    Clear
-                  </button>
-                )}
+                <p className="text-sm text-gray-500 mt-2">
+                  {searchTerm 
+                    ? `Searching for: "${searchTerm}"`
+                    : 'Enter keywords to search jobs'
+                  }
+                </p>
               </div>
             </div>
           </form>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{totalJobs.toLocaleString()}</div>
-            <div className="text-sm text-gray-600">Total Jobs</div>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="text-2xl font-bold text-gray-900">{jobs.length}</div>
-            <div className="text-sm text-gray-600">Current Page</div>
+            <div className="text-sm text-gray-600">Jobs Loaded</div>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{totalPages}</div>
-            <div className="text-sm text-gray-600">Total Pages</div>
+            <div className="text-2xl font-bold text-gray-900">{refreshCount}</div>
+            <div className="text-sm text-gray-600">Refresh Count</div>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="text-2xl font-bold text-gray-900">{upworkConnected ? '✅' : '❌'}</div>
-            <div className="text-sm text-gray-600">Upwork Status</div>
+            <div className="text-sm text-gray-600">Upwork Connected</div>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="text-2xl font-bold text-gray-900">100%</div>
@@ -321,9 +292,7 @@ export default function Dashboard() {
           <div className={`px-4 py-3 rounded-lg mb-6 ${
             connectionError.includes('✅') || connectionError.includes('Loaded') || connectionError.includes('Found')
               ? 'bg-green-100 border border-green-400 text-green-700'
-              : connectionError.includes('cached')
-                ? 'bg-yellow-100 border border-yellow-400 text-yellow-700'
-                : 'bg-red-100 border border-red-400 text-red-700'
+              : 'bg-yellow-100 border border-yellow-400 text-yellow-700'
           }`}>
             <div className="flex justify-between items-center">
               <span>{connectionError}</span>
@@ -345,7 +314,7 @@ export default function Dashboard() {
                 {searchTerm ? `🔍 Search Results for "${searchTerm}"` : '📊 Upwork Jobs'}
               </h2>
               <div className="text-sm text-gray-600">
-                Showing {jobs.length} of {totalJobs.toLocaleString()} jobs
+                {jobs.length} jobs loaded
               </div>
             </div>
           </div>
@@ -354,13 +323,22 @@ export default function Dashboard() {
             {jobsLoading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading jobs from Upwork...</p>
+                <p className="text-gray-600">
+                  {searchTerm ? `Searching for "${searchTerm}"...` : 'Loading jobs...'}
+                </p>
               </div>
             ) : jobs.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-gray-400 mb-4 text-6xl">💼</div>
-                <h3 className="text-lg font-semibold text-gray-700 mb-2">No Jobs Available</h3>
-                <p className="text-gray-500 mb-6">Try refreshing or check your Upwork connection</p>
+                <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                  {searchTerm ? 'No Jobs Found' : 'No Jobs Available'}
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  {searchTerm 
+                    ? `Try different keywords or refresh.`
+                    : 'Try refreshing or check your Upwork connection.'
+                  }
+                </p>
                 <button 
                   onClick={handleForceRefresh}
                   className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
@@ -385,16 +363,17 @@ export default function Dashboard() {
                   </div>
                   
                   <p className="text-gray-600 text-sm mb-3">
-                    {job.category} • Posted: {job.postedDate}
+                    {job.category} • Posted: {job.postedDate} • {job.proposals} proposals
                   </p>
                   
-                  <p className="text-gray-700 mb-3 line-clamp-2">
-                    {job.description}
+                  <p className="text-gray-700 mb-3">
+                    {job.description.substring(0, 250)}
+                    {job.description.length > 250 && '...'}
                   </p>
                   
                   <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-2">
-                      {job.skills.slice(0, 3).map((skill, index) => (
+                      {job.skills.slice(0, 5).map((skill, index) => (
                         <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
                           {skill}
                         </span>
