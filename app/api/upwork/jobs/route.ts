@@ -176,15 +176,23 @@ export async function GET(req: NextRequest) {
     // Fetch multi-category jobs
     // ======================
     const accessToken = tokenRes.rows[0].access_token
-    let allJobs: JobItem[] = []
+   const jobMap = new Map<string, JobItem>()
 
-    for (const cat of CATEGORY_LIST) {
-      const catJobs = await fetchJobsForCategory(accessToken, cat, search)
-      allJobs.push(...catJobs)
-      if (allJobs.length >= MAX_JOBS) break
+for (const cat of CATEGORY_LIST) {
+  const catJobs = await fetchJobsForCategory(accessToken, cat, search)
+
+  for (const job of catJobs) {
+    // ✅ Same job ID dobara aaye to ignore
+    if (!jobMap.has(job.id)) {
+      jobMap.set(job.id, job)
     }
+  }
 
-    allJobs = allJobs.slice(0, MAX_JOBS)
+  if (jobMap.size >= MAX_JOBS) break
+}
+
+const allJobs = Array.from(jobMap.values()).slice(0, MAX_JOBS)
+
     cache[cacheKey] = { jobs: allJobs, time: Date.now() }
 
     return NextResponse.json({
