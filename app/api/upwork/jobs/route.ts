@@ -1,4 +1,3 @@
-// app/api/upwork/jobs/route.ts - SAFE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -6,16 +5,8 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 const MAX_JOBS = 300
-const CATEGORY_LIST = [
-  'Web Development',
-  'Mobile Development',
-  'Design & Creative',
-  'Writing',
-  'Customer Service',
-  'Sales & Marketing',
-]
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 
 type JobItem = {
   id: string
@@ -33,16 +24,18 @@ type JobItem = {
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// Fetch jobs for a single category
-async function fetchJobsForCategory(
+// ================= FETCH FROM UPWORK =================
+async function fetchJobsFromUpwork(
   accessToken: string,
-  category: string,
   search: string
 ): Promise<JobItem[]> {
   const graphqlBody = {
     query: `
-      query {
-        marketplaceJobPostingsSearch {
+      query SearchJobs($query: String) {
+        marketplaceJobPostingsSearch(
+          first: 100
+          query: $query
+        ) {
           edges {
             node {
               id
@@ -59,7 +52,10 @@ async function fetchJobsForCategory(
           }
         }
       }
-    `
+    `,
+    variables: {
+      query: search || null
+    }
   }
 
   const res = await fetch('https://api.upwork.com/graphql', {
@@ -72,28 +68,15 @@ async function fetchJobsForCategory(
   })
 
   if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt)
+    const text = await res.text()
+    throw new Error(text)
   }
 
   const json: any = await res.json()
   const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
 
-  const jobs: JobItem[] = []
-
-  for (const edge of edges) {
+  const jobs: JobItem[] = edges.map((edge: any) => {
     const n = edge.node
-    // Filter by search keyword
-    if (search) {
-      const q = search.toLowerCase()
-      const match =
-        n.title?.toLowerCase().includes(q) ||
-        n.description?.toLowerCase().includes(q) ||
-        (Array.isArray(n.skills) && n.skills.some((s: any) =>
-          s?.name?.toLowerCase().includes(q)
-        ))
-      if (!match) continue
-    }
 
     let budget = 'Not specified'
     if (n.amount?.rawValue) {
@@ -102,7 +85,7 @@ async function fetchJobsForCategory(
       budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
     }
 
-    jobs.push({
+    return {
       id: n.id,
       title: n.title || 'Job',
       description: n.description || '',
@@ -111,66 +94,81 @@ async function fetchJobsForCategory(
         n.publishedDateTime || n.createdDateTime
       ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
-      category: n.category || category,
+      category: n.category || 'General',
       skills: Array.isArray(n.skills)
-        ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
+        ? n.skills.map((s: any) => s?.name || '')
         : [],
       verified: true,
       source: 'upwork',
       isRealJob: true
-    })
-  }
+    }
+  })
 
   return jobs
 }
 
-// ================= API Handler =================
+// ================= API HANDLER =================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!user)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
     const refresh = searchParams.get('refresh') === 'true'
+
     const cacheKey = search || '__ALL__'
 
     const tokenRes = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-    if (tokenRes.rows.length === 0)
+
+    if (tokenRes.rows.length === 0) {
       return NextResponse.json({
         success: false,
         jobs: [],
-        upworkConnected: false,
-        message: 'Upwork not connected'
+        upworkConnected: false
       })
+    }
 
-    // CACHE HIT
-    if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
+    // ================= CACHE =================
+    if (
+      !search &&
+      !refresh &&
+      cache[cacheKey] &&
+      Date.now() - cache[cacheKey].time < CACHE_TTL
+    ) {
       return NextResponse.json({
         success: true,
         jobs: cache[cacheKey].jobs,
         total: cache[cacheKey].jobs.length,
         cached: true,
-        upworkConnected: true,
-        message: 'Loaded jobs from cache'
+        upworkConnected: true
       })
     }
 
-    // Multi-category fetch
+    // ================= FETCH =================
     const accessToken = tokenRes.rows[0].access_token
     let allJobs: JobItem[] = []
 
-    for (const cat of CATEGORY_LIST) {
-      const catJobs = await fetchJobsForCategory(accessToken, cat, search)
-      allJobs.push(...catJobs)
-      if (allJobs.length >= MAX_JOBS) break
+    while (allJobs.length < MAX_JOBS) {
+      const newJobs = await fetchJobsFromUpwork(accessToken, search)
+      if (newJobs.length === 0) break
+
+      allJobs.push(...newJobs)
+
+      // avoid infinite loop
+      if (newJobs.length < 100) break
     }
 
     allJobs = allJobs.slice(0, MAX_JOBS)
-    cache[cacheKey] = { jobs: allJobs, time: Date.now() }
+
+    cache[cacheKey] = {
+      jobs: allJobs,
+      time: Date.now()
+    }
 
     return NextResponse.json({
       success: true,
@@ -178,7 +176,9 @@ export async function GET(req: NextRequest) {
       total: allJobs.length,
       cached: false,
       upworkConnected: true,
-      message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
+      message: search
+        ? `Found ${allJobs.length} jobs for "${search}"`
+        : `Loaded ${allJobs.length} jobs`
     })
   } catch (e: any) {
     return NextResponse.json(
