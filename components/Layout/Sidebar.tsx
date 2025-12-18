@@ -1,4 +1,4 @@
-// components/Layout/Sidebar.tsx 
+// components/Layout/Sidebar.tsx - FINAL VERSION WITH PROPER UPWORK CONNECT/DISCONNECT
 'use client'
 
 import { useRouter, usePathname } from 'next/navigation'
@@ -25,12 +25,10 @@ export default function Sidebar({
   const router = useRouter()
   const pathname = usePathname()
   
-  // State Management
-  const [connecting, setConnecting] = useState(false)
   const [upworkConnected, setUpworkConnected] = useState(false)
   const [loadingConnection, setLoadingConnection] = useState(true)
+  const [connecting, setConnecting] = useState(false)
 
-  // Navigation
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
     { name: 'History', href: '/dashboard/history', icon: '📝' },
@@ -38,71 +36,73 @@ export default function Sidebar({
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
   ]
 
-  // Check Upwork Connection
+  // Check Upwork connection status
   useEffect(() => {
-    checkUpworkStatus()
+    checkUpworkConnection()
   }, [])
 
-  const checkUpworkStatus = async () => {
+  const checkUpworkConnection = async () => {
     setLoadingConnection(true)
-    
     try {
-      const response = await fetch('/api/upwork/status')
-      if (response.ok) {
-        const data = await response.json()
-        setUpworkConnected(data.connected || false)
+      const res = await fetch('/api/upwork/status')
+      if (res.ok) {
+        const data = await res.json()
+        setUpworkConnected(data.connected === true)
       } else {
         setUpworkConnected(false)
       }
-    } catch (error) {
-      console.error('Status check error:', error)
+    } catch (err) {
+      console.error('Failed to check Upwork status')
       setUpworkConnected(false)
     } finally {
       setLoadingConnection(false)
     }
   }
 
-  // Connect Upwork
+  // Connect to Upwork - Get auth URL from API
   const handleConnectUpwork = async () => {
     setConnecting(true)
-    
     try {
-      // Simple OAuth URL
-      const clientId = 'b2cf4bfa369cac47083f664358d3accb'
-      const redirectUri = 'https://updash.shameelnasir.com/api/upwork/callback'
-      
-      const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
-      
-      console.log('🔗 Redirecting to Upwork OAuth...')
-      window.location.href = authUrl
-      
-    } catch (error: any) {
-      console.error('Connection error:', error)
-      alert('Error: ' + error.message)
+      const res = await fetch('/api/upwork/auth')
+      const data = await res.json()
+
+      if (data.success && data.url) {
+        // Redirect user to official Upwork login page
+        window.location.href = data.url
+      } else {
+        alert('Failed to get Upwork login link: ' + (data.error || 'Unknown error'))
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Connection failed. Please try again.')
+    } finally {
       setConnecting(false)
     }
   }
 
   // Disconnect Upwork
   const handleDisconnectUpwork = async () => {
-    if (!confirm('Disconnect Upwork account?')) return
-    
+    if (!confirm('Are you sure you want to disconnect your Upwork account?')) return
+
     try {
-      const response = await fetch('/api/upwork', {
+      const res = await fetch('/api/upwork/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'disconnect' })
       })
-      
-      if (response.ok) {
+
+      const data = await res.json()
+
+      if (data.success) {
         setUpworkConnected(false)
-        alert('✅ Upwork disconnected')
+        alert('✅ Upwork account disconnected successfully!')
+        // Optional: reload to refresh jobs
         window.location.reload()
       } else {
-        alert('Failed to disconnect')
+        alert('Failed to disconnect: ' + data.error)
       }
-    } catch (error) {
-      console.error('Disconnect error:', error)
+    } catch (err) {
+      console.error('Disconnect failed:', err)
+      alert('Disconnect failed. Please try again.')
     }
   }
 
@@ -118,25 +118,20 @@ export default function Sidebar({
 
       {/* Sidebar */}
       <div className={`
-        fixed inset-y-0 left-0 z-50
-        w-80 bg-gray-900 transform transition-transform duration-300 ease-in-out
+        fixed inset-y-0 left-0 z-50 w-80 bg-gray-900 transform transition-transform duration-300 ease-in-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
         lg:translate-x-0 lg:static lg:inset-0
         flex flex-col
       `}>
         {/* Header */}
-        <div className="flex-shrink-0 px-6 py-4 border-b border-gray-700">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <h1 className="text-xl font-bold text-white">UPDASH RESPONDER</h1>
-              <p className="text-gray-400 text-xs">AI Upwork Assistant</p>
-            </div>
-          </div>
+        <div className="flex-shrink-0 px-6 py-6 border-b border-gray-700">
+          <h1 className="text-2xl font-bold text-white">UPDASH RESPONDER</h1>
+          <p className="text-gray-400 text-sm mt-1">AI Upwork Assistant</p>
         </div>
         
         {/* Navigation */}
-        <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
-          <nav className="flex-1 px-4 space-y-1">
+        <div className="flex-1 overflow-y-auto py-4">
+          <nav className="px-4 space-y-2">
             {navigation.map((item) => (
               <button
                 key={item.name}
@@ -144,63 +139,78 @@ export default function Sidebar({
                   router.push(item.href)
                   setSidebarOpen(false)
                 }}
-                className={`group w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-all ${
+                className={`w-full flex items-center px-5 py-3 text-sm font-medium rounded-lg transition-all ${
                   pathname === item.href
-                    ? 'bg-blue-600 text-white shadow-lg' 
+                    ? 'bg-blue-600 text-white shadow-md' 
                     : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                 }`}
               >
-                <span className="text-lg mr-3">{item.icon}</span>
-                <span className="truncate">{item.name}</span>
+                <span className="text-xl mr-4">{item.icon}</span>
+                <span>{item.name}</span>
               </button>
             ))}
           </nav>
 
-          {/* Upwork Connection */}
-          <div className="px-4 mt-6">
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-3">
-                {loadingConnection ? 'Checking...' : 
-                 upworkConnected ? '✅ Upwork Connected' : 'Upwork Connection'}
+          {/* Upwork Connection Section */}
+          <div className="px-6 mt-8">
+            <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <h3 className="text-lg font-bold text-white mb-4">
+                Upwork Account
               </h3>
-              
-              {upworkConnected ? (
-                <div>
-                  <p className="text-green-300 text-sm mb-4">
-                    Connected to real Upwork API
+
+              {loadingConnection ? (
+                <div className="text-center py-4">
+                  <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+                  <p className="text-gray-400 text-sm mt-2">Checking connection...</p>
+                </div>
+              ) : upworkConnected ? (
+                <div className="space-y-4">
+                  <div className="flex items-center text-green-400">
+                    <span className="text-2xl mr-2">✅</span>
+                    <span className="font-medium">Connected to Upwork</span>
+                  </div>
+                  <p className="text-gray-300 text-sm">
+                    Real jobs are now loading from your Upwork account
                   </p>
-                  <div className="flex gap-2">
-                    <button 
+                  <div className="flex gap-3">
+                    <button
                       onClick={handleDisconnectUpwork}
-                      className="flex-1 py-2 px-4 rounded-lg font-semibold bg-red-600 text-white hover:bg-red-700"
+                      className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition"
                     >
                       Disconnect
                     </button>
-                    <button 
+                    <button
                       onClick={() => window.location.reload()}
-                      className="flex-1 py-2 px-4 rounded-lg font-semibold bg-blue-600 text-white hover:bg-blue-700"
+                      className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
                     >
-                      Refresh
+                      Refresh Jobs
                     </button>
                   </div>
                 </div>
               ) : (
-                <div>
-                  <p className="text-gray-300 text-sm mb-4">
-                    Connect to fetch real Upwork jobs
+                <div className="space-y-4">
+                  <div className="flex items-center text-yellow-400">
+                    <span className="text-2xl mr-2">⚠️</span>
+                    <span className="font-medium">Not Connected</span>
+                  </div>
+                  <p className="text-gray-300 text-sm">
+                    Connect your Upwork account to see real jobs
                   </p>
-                  <button 
+                  <button
                     onClick={handleConnectUpwork}
                     disabled={connecting}
-                    className="w-full py-2 px-4 rounded-lg font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                    className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 disabled:opacity-70 text-white font-bold rounded-lg transition flex items-center justify-center gap-3"
                   >
                     {connecting ? (
-                      <div className="flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Connecting...
-                      </div>
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                        <span>Connecting...</span>
+                      </>
                     ) : (
-                      '🔗 Connect Upwork'
+                      <>
+                        <span className="text-xl">🔗</span>
+                        <span>Connect Upwork Account</span>
+                      </>
                     )}
                   </button>
                 </div>
@@ -209,43 +219,37 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* ✅ FIXED: User Section - SAFE */}
-        <div className="flex-shrink-0 border-t border-gray-700 bg-gray-800 p-4">
+        {/* User Section */}
+        <div className="border-t border-gray-700 bg-gray-800 p-6">
           {user ? (
-            <>
-              <div className="mb-4">
-                <div className="flex items-center space-x-3">
-                  {/* ✅ SAFE: No charAt error */}
-                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
-                    {user.name && user.name.length > 0 
-                      ? user.name.charAt(0).toUpperCase() 
-                      : 'U'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">
-                      {user.name || 'User'}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {user.email || ''}
-                    </p>
-                  </div>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
+                  {user.name?.[0]?.toUpperCase() || 'U'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold truncate">
+                    {user.name || 'User'}
+                  </p>
+                  <p className="text-gray-400 text-sm truncate">
+                    {user.email}
+                  </p>
                 </div>
               </div>
-              
               <button
                 onClick={handleSignOut}
-                className="w-full flex items-center px-4 py-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
               >
-                <span className="text-lg mr-3">🚪</span>
-                <span className="truncate">Sign Out</span>
+                <span className="text-xl">🚪</span>
+                <span>Sign Out</span>
               </button>
-            </>
+            </div>
           ) : (
-            <div className="text-center py-3">
-              <p className="text-gray-400 text-sm">Not logged in</p>
+            <div className="text-center">
+              <p className="text-gray-400 mb-3">Not logged in</p>
               <button
                 onClick={() => router.push('/auth/login')}
-                className="mt-2 w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg"
               >
                 Login
               </button>
