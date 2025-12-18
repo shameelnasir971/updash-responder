@@ -5,10 +5,10 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes cache
 const MAX_JOBS = 300
-const PAGE_SIZE = 50
-const CACHE_TTL = 2 * 60 * 1000
 
+// ✅ Aap saari major Upwork categories yahan daal sakte hain
 const CATEGORY_LIST = [
   'Web Development',
   'Mobile Development',
@@ -16,9 +16,13 @@ const CATEGORY_LIST = [
   'Writing',
   'Customer Service',
   'Sales & Marketing',
-  'Figma',
-  'Shopify',
-  'Shopify Theme Developer'
+  'Admin Support',
+  'Engineering & Architecture',
+  'Data Science & Analytics',
+  'IT & Networking',
+  'Legal',
+  'Translation',
+  'Other'
 ]
 
 type JobItem = {
@@ -37,112 +41,113 @@ type JobItem = {
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// ===================== Fetch Jobs =====================
+// ==============================
+// Fetch Jobs per Category from Upwork GraphQL
+// ==============================
 async function fetchJobsForCategory(
   accessToken: string,
   category: string,
   search: string
 ): Promise<JobItem[]> {
-  let allJobs: JobItem[] = []
-  let after: string | null = null
-  let hasNextPage = true
-
-  while (hasNextPage && allJobs.length < MAX_JOBS) {
-    const graphqlBody = {
-      query: `
-        query($first: Int!, $after: String, $search: String) {
-          marketplaceJobPostingsSearch(first: $first, after: $after, query: $search) {
-            edges {
-              cursor
-              node {
-                id
-                title
-                description
-                createdDateTime
-                publishedDateTime
-                totalApplicants
-                category
-                skills { name }
-                amount { rawValue currency }
-                hourlyBudgetMin { rawValue currency }
-              }
-            }
-            pageInfo {
-              hasNextPage
-              endCursor
+  const graphqlBody = {
+    query: `
+      query {
+        marketplaceJobPostingsSearch {
+          edges {
+            node {
+              id
+              title
+              description
+              createdDateTime
+              publishedDateTime
+              totalApplicants
+              category
+              skills { name }
+              amount { rawValue currency }
+              hourlyBudgetMin { rawValue currency }
             }
           }
         }
-      `,
-      variables: {
-        first: PAGE_SIZE,
-        after,
-        search: search || undefined
       }
-    }
-
-    const res = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(graphqlBody)
-    })
-
-    if (!res.ok) {
-      const txt = await res.text()
-      throw new Error(`GraphQL Error: ${txt}`)
-    }
-
-    const json: any = await res.json()
-    const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
-    const pageInfo = json.data?.marketplaceJobPostingsSearch?.pageInfo || {}
-
-    for (const edge of edges) {
-      const n = edge.node
-      if (allJobs.find(j => j.id === n.id)) continue
-
-      let budget = 'Not specified'
-      if (n.amount?.rawValue) budget = `${n.amount.currency} ${n.amount.rawValue}`
-      else if (n.hourlyBudgetMin?.rawValue)
-        budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
-
-      allJobs.push({
-        id: n.id,
-        title: n.title || 'Job',
-        description: n.description || '',
-        budget,
-        postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString(),
-        proposals: n.totalApplicants || 0,
-        category: n.category || category,
-        skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s.name || 'Unknown') : [],
-        verified: true,
-        source: 'upwork',
-        isRealJob: true
-      })
-
-      if (allJobs.length >= MAX_JOBS) break
-    }
-
-    hasNextPage = pageInfo.hasNextPage
-    after = pageInfo.endCursor
+    `
   }
 
-  return allJobs
+  const res = await fetch('https://api.upwork.com/graphql', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(graphqlBody)
+  })
+
+  if (!res.ok) {
+    const txt = await res.text()
+    throw new Error(txt)
+  }
+
+  const json: any = await res.json()
+  const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
+
+  const jobs: JobItem[] = []
+
+  for (const edge of edges) {
+    const n = edge.node
+
+    // ✅ Keyword search filter
+    if (search) {
+      const q = search.toLowerCase()
+      const match =
+        n.title?.toLowerCase().includes(q) ||
+        n.description?.toLowerCase().includes(q) ||
+        (Array.isArray(n.skills) &&
+          n.skills.some((s: any) => s?.name?.toLowerCase().includes(q)))
+      if (!match) continue
+    }
+
+    let budget = 'Not specified'
+    if (n.amount?.rawValue) {
+      budget = `${n.amount.currency} ${n.amount.rawValue}`
+    } else if (n.hourlyBudgetMin?.rawValue) {
+      budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+    }
+
+    jobs.push({
+      id: n.id,
+      title: n.title || 'Job',
+      description: n.description || '',
+      budget,
+      postedDate: new Date(
+        n.publishedDateTime || n.createdDateTime
+      ).toLocaleDateString(),
+      proposals: n.totalApplicants || 0,
+      category: n.category || category,
+      skills: Array.isArray(n.skills)
+        ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
+        : [],
+      verified: true,
+      source: 'upwork',
+      isRealJob: true
+    })
+  }
+
+  return jobs
 }
 
-// ===================== API Handler =====================
+// ==============================
+// API Handler
+// ==============================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
     const refresh = searchParams.get('refresh') === 'true'
     const cacheKey = search || '__ALL__'
 
+    // ✅ Fetch user Upwork token
     const tokenRes = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
@@ -155,7 +160,7 @@ export async function GET(req: NextRequest) {
         message: 'Upwork not connected'
       })
 
-    // Cache hit
+    // ✅ Return cache if valid
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
@@ -167,6 +172,9 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    // ======================
+    // Fetch multi-category jobs
+    // ======================
     const accessToken = tokenRes.rows[0].access_token
     let allJobs: JobItem[] = []
 
@@ -188,7 +196,6 @@ export async function GET(req: NextRequest) {
       message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
     })
   } catch (e: any) {
-    console.error('Error fetching Upwork jobs:', e)
     return NextResponse.json(
       { success: false, jobs: [], message: e.message },
       { status: 500 }
