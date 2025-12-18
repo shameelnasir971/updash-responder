@@ -36,7 +36,7 @@ export default function Sidebar({
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: '📊' },
-    { name: 'Jobs', href: '/dashboard/jobs', icon: '💼' },
+    // { name: 'Jobs', href: '/dashboard/jobs', icon: '💼' },
     { name: 'History', href: '/dashboard/history', icon: '📝' },
     { name: 'Prompts', href: '/dashboard/prompts', icon: '🤖' },
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' }
