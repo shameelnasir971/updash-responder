@@ -8,7 +8,6 @@ export const dynamic = 'force-dynamic'
 const CACHE_TTL = 2 * 60 * 1000 // 2 minutes cache
 const MAX_JOBS = 300
 
-// ✅ Aap saari major Upwork categories yahan daal sakte hain
 const CATEGORY_LIST = [
   'Web Development',
   'Mobile Development',
@@ -94,7 +93,7 @@ async function fetchJobsForCategory(
   for (const edge of edges) {
     const n = edge.node
 
-    // ✅ Keyword search filter
+    // Keyword search filter
     if (search) {
       const q = search.toLowerCase()
       const match =
@@ -147,7 +146,6 @@ export async function GET(req: NextRequest) {
     const refresh = searchParams.get('refresh') === 'true'
     const cacheKey = search || '__ALL__'
 
-    // ✅ Fetch user Upwork token
     const tokenRes = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
@@ -160,7 +158,7 @@ export async function GET(req: NextRequest) {
         message: 'Upwork not connected'
       })
 
-    // ✅ Return cache if valid
+    // Return cache if valid
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
@@ -184,16 +182,25 @@ export async function GET(req: NextRequest) {
       if (allJobs.length >= MAX_JOBS) break
     }
 
-    allJobs = allJobs.slice(0, MAX_JOBS)
-    cache[cacheKey] = { jobs: allJobs, time: Date.now() }
+    // ✅ Remove duplicates by job id
+    const uniqueJobsMap = new Map<string, JobItem>()
+    for (const job of allJobs) {
+      if (!uniqueJobsMap.has(job.id)) {
+        uniqueJobsMap.set(job.id, job)
+      }
+    }
+
+    const uniqueJobs = Array.from(uniqueJobsMap.values()).slice(0, MAX_JOBS)
+
+    cache[cacheKey] = { jobs: uniqueJobs, time: Date.now() }
 
     return NextResponse.json({
       success: true,
-      jobs: allJobs,
-      total: allJobs.length,
+      jobs: uniqueJobs,
+      total: uniqueJobs.length,
       cached: false,
       upworkConnected: true,
-      message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
+      message: search ? `Found ${uniqueJobs.length} jobs for "${search}"` : `Loaded ${uniqueJobs.length} jobs`
     })
   } catch (e: any) {
     return NextResponse.json(
