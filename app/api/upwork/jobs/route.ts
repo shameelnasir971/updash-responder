@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
     const refresh = searchParams.get('refresh') === 'true'
-    const cacheKey = search || '__ALL__'
+const cacheKey = `${search || '__ALL__'}_${MAX_JOBS}`
 
     // ✅ Fetch user Upwork token
     const tokenRes = await pool.query(

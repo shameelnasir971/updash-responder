@@ -99,7 +99,7 @@ export default function Dashboard() {
       const data = await response.json()
       console.log('📊 Jobs Data:', {
         success: data.success,
-        count: data.jobs?.length,
+  count: data.total,
         message: data.message,
         cached: data.cached || false
       })
