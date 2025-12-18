@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
+import { json } from 'stream/consumers'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,12 +30,15 @@ async function fetchJobsFromUpwork(
   accessToken: string,
   search: string
 ): Promise<JobItem[]> {
+
   const graphqlBody = {
     query: `
-      query SearchJobs($query: String) {
+      query JobSearch($search: String) {
         marketplaceJobPostingsSearch(
           first: 100
-          query: $query
+          filter: {
+            query: $search
+          }
         ) {
           edges {
             node {
@@ -54,7 +58,7 @@ async function fetchJobsFromUpwork(
       }
     `,
     variables: {
-      query: search || null
+      search: search || null
     }
   }
 
@@ -73,9 +77,15 @@ async function fetchJobsFromUpwork(
   }
 
   const json: any = await res.json()
-  const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
 
-  const jobs: JobItem[] = edges.map((edge: any) => {
+  const edges =
+    json?.data?.marketplaceJobPostingsSearch?.edges || []
+
+  if (edges.length === 0) {
+    console.warn('⚠️ No jobs returned from Upwork')
+  }
+
+  return edges.map((edge: any) => {
     const n = edge.node
 
     let budget = 'Not specified'
@@ -103,9 +113,12 @@ async function fetchJobsFromUpwork(
       isRealJob: true
     }
   })
-
-  return jobs
 }
+
+console.log(
+  '🧪 Upwork raw response:',
+  JSON.stringify(json, null, 2)
+)
 
 // ================= API HANDLER =================
 export async function GET(req: NextRequest) {
