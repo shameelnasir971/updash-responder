@@ -25,74 +25,73 @@ type JobItem = {
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
 // ================= SAFE UPWORK FETCH =================
-async function tryFetchFromUpwork(
-  accessToken: string
-): Promise<JobItem[]> {
-  const graphqlBody = {
-    query: `
-      query {
-        marketplaceJobPostingsSearch(first: 100) {
-          edges {
-            node {
-              id
-              title
-              description
-              createdDateTime
-              publishedDateTime
-              totalApplicants
-              category
-              skills { name }
-              amount { rawValue currency }
-              hourlyBudgetMin { rawValue currency }
+async function fetchFromUpwork(accessToken: string): Promise<JobItem[]> {
+  try {
+    const res = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: `
+          query {
+            marketplaceJobPostingsSearch(first: 100) {
+              edges {
+                node {
+                  id
+                  title
+                  description
+                  createdDateTime
+                  publishedDateTime
+                  totalApplicants
+                  category
+                  skills { name }
+                  amount { rawValue currency }
+                  hourlyBudgetMin { rawValue currency }
+                }
+              }
             }
           }
-        }
+        `
+      })
+    })
+
+    if (!res.ok) return []
+
+    const json: any = await res.json()
+    const edges = json?.data?.marketplaceJobPostingsSearch?.edges || []
+
+    return edges.map((e: any) => {
+      const n = e.node
+
+      let budget = 'Not specified'
+      if (n.amount?.rawValue)
+        budget = `${n.amount.currency} ${n.amount.rawValue}`
+      else if (n.hourlyBudgetMin?.rawValue)
+        budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+
+      return {
+        id: n.id,
+        title: n.title || 'Job',
+        description: n.description || '',
+        budget,
+        postedDate: new Date(
+          n.publishedDateTime || n.createdDateTime
+        ).toISOString(),
+        proposals: n.totalApplicants || 0,
+        category: n.category || 'General',
+        skills: Array.isArray(n.skills)
+          ? n.skills.map((s: any) => s?.name || '')
+          : [],
+        verified: true,
+        source: 'upwork',
+        isRealJob: true
       }
-    `
+    })
+  } catch {
+    return []
   }
-
-  const res = await fetch('https://api.upwork.com/graphql', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(graphqlBody)
-  })
-
-  if (!res.ok) return []
-
-  const json: any = await res.json()
-  const edges = json?.data?.marketplaceJobPostingsSearch?.edges || []
-
-  return edges.map((edge: any) => {
-    const n = edge.node
-
-    let budget = 'Not specified'
-    if (n.amount?.rawValue) {
-      budget = `${n.amount.currency} ${n.amount.rawValue}`
-    } else if (n.hourlyBudgetMin?.rawValue) {
-      budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
-    }
-
-    return {
-      id: n.id,
-      title: n.title || 'Job',
-      description: n.description || '',
-      budget,
-      postedDate: new Date(
-        n.publishedDateTime || n.createdDateTime
-      ).toLocaleDateString(),
-      proposals: n.totalApplicants || 0,
-      category: n.category || 'General',
-      skills: Array.isArray(n.skills)
-        ? n.skills.map((s: any) => s?.name || '')
-        : [],
-      verified: true,
-      source: 'upwork',
-      isRealJob: true
-    }
-  })
 }
 
 // ================= API HANDLER =================
@@ -100,7 +99,7 @@ export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user)
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ success: false, jobs: [] }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.toLowerCase().trim() || ''
@@ -116,7 +115,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         success: true,
         jobs: cache[cacheKey].jobs,
-        total: cache[cacheKey].jobs.length,
+        count: cache[cacheKey].jobs.length,
         cached: true
       })
     }
@@ -133,7 +132,7 @@ export async function GET(req: NextRequest) {
       description: r.description,
       budget: r.budget,
       postedDate: new Date(r.posted_at).toLocaleDateString(),
-      proposals: r.proposals || 0,
+      proposals: r.proposals,
       category: r.category,
       skills: r.skills || [],
       verified: true,
@@ -141,16 +140,16 @@ export async function GET(req: NextRequest) {
       isRealJob: true
     }))
 
-    // ===== SEARCH FILTER (LOCAL) =====
+    // ===== SEARCH FILTER =====
     if (search) {
       jobs = jobs.filter(j =>
         j.title.toLowerCase().includes(search) ||
         j.description.toLowerCase().includes(search) ||
-        j.skills.some(s => s.toLowerCase().includes(search))
+        j.skills.some((s) => s.toLowerCase().includes(search))
       )
     }
 
-    // ===== BACKGROUND UPWORK REFRESH =====
+    // ===== BACKGROUND UPWORK SYNC =====
     if (refresh || jobs.length < 50) {
       const tokenRes = await pool.query(
         'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
@@ -158,41 +157,37 @@ export async function GET(req: NextRequest) {
       )
 
       if (tokenRes.rows.length > 0) {
-        const freshJobs = await tryFetchFromUpwork(
-          tokenRes.rows[0].access_token
-        )
+        const freshJobs = await fetchFromUpwork(tokenRes.rows[0].access_token)
 
-        for (const job of freshJobs) {
+        for (const j of freshJobs) {
           await pool.query(
             `
-            INSERT INTO upwork_jobs (id, title, description, budget, category, skills, posted_at)
-            VALUES ($1,$2,$3,$4,$5,$6,NOW())
+            INSERT INTO upwork_jobs
+            (id, title, description, budget, category, skills, posted_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
             ON CONFLICT (id) DO NOTHING
-          `,
+            `,
             [
-              job.id,
-              job.title,
-              job.description,
-              job.budget,
-              job.category,
-              job.skills
+              j.id,
+              j.title,
+              j.description,
+              j.budget,
+              j.category,
+              j.skills,
+              j.postedDate
             ]
           )
         }
       }
     }
 
-    cache[cacheKey] = {
-      jobs,
-      time: Date.now()
-    }
+    cache[cacheKey] = { jobs, time: Date.now() }
 
     return NextResponse.json({
       success: true,
       jobs,
-      total: jobs.length,
-      cached: false,
-      message: 'Loaded jobs safely'
+      count: jobs.length,
+      cached: false
     })
   } catch (e: any) {
     return NextResponse.json(
