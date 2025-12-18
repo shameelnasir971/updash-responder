@@ -1,4 +1,3 @@
-// app/api/upwork/jobs/route.ts - SAFE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -6,8 +5,10 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes cache
 const MAX_JOBS = 300
+
+// ✅ Aap saari major Upwork categories yahan daal sakte hain
 const CATEGORY_LIST = [
   'Web Development',
   'Mobile Development',
@@ -15,6 +16,13 @@ const CATEGORY_LIST = [
   'Writing',
   'Customer Service',
   'Sales & Marketing',
+  'Admin Support',
+  'Engineering & Architecture',
+  'Data Science & Analytics',
+  'IT & Networking',
+  'Legal',
+  'Translation',
+  'Other'
 ]
 
 type JobItem = {
@@ -33,7 +41,9 @@ type JobItem = {
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// Fetch jobs for a single category
+// ==============================
+// Fetch Jobs per Category from Upwork GraphQL
+// ==============================
 async function fetchJobsForCategory(
   accessToken: string,
   category: string,
@@ -83,15 +93,15 @@ async function fetchJobsForCategory(
 
   for (const edge of edges) {
     const n = edge.node
-    // Filter by search keyword
+
+    // ✅ Keyword search filter
     if (search) {
       const q = search.toLowerCase()
       const match =
         n.title?.toLowerCase().includes(q) ||
         n.description?.toLowerCase().includes(q) ||
-        (Array.isArray(n.skills) && n.skills.some((s: any) =>
-          s?.name?.toLowerCase().includes(q)
-        ))
+        (Array.isArray(n.skills) &&
+          n.skills.some((s: any) => s?.name?.toLowerCase().includes(q)))
       if (!match) continue
     }
 
@@ -124,7 +134,9 @@ async function fetchJobsForCategory(
   return jobs
 }
 
-// ================= API Handler =================
+// ==============================
+// API Handler
+// ==============================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -135,6 +147,7 @@ export async function GET(req: NextRequest) {
     const refresh = searchParams.get('refresh') === 'true'
     const cacheKey = search || '__ALL__'
 
+    // ✅ Fetch user Upwork token
     const tokenRes = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
@@ -147,7 +160,7 @@ export async function GET(req: NextRequest) {
         message: 'Upwork not connected'
       })
 
-    // CACHE HIT
+    // ✅ Return cache if valid
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
@@ -159,7 +172,9 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Multi-category fetch
+    // ======================
+    // Fetch multi-category jobs
+    // ======================
     const accessToken = tokenRes.rows[0].access_token
     let allJobs: JobItem[] = []
 
