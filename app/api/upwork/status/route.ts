@@ -1,29 +1,45 @@
-// app/api/upwork/status/route.ts 
+// app/api/upwork/status/route.ts - FINAL & CORRECT VERSION
 import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // ✅ SUPER SIMPLE - NO ERROR THROWING
-    const result = await pool.query(
-      'SELECT id FROM upwork_accounts LIMIT 1'
-    )
+    const user = await getCurrentUser()
     
+    // Agar user logged in nahi hai
+    if (!user) {
+      return NextResponse.json({
+        success: true,
+        connected: false,
+        message: 'User not authenticated'
+      })
+    }
+
+    // Current user ke liye check karo
+    const result = await pool.query(
+      'SELECT id FROM upwork_accounts WHERE user_id = $1',
+      [user.id]
+    )
+
+    const connected = result.rows.length > 0
+
     return NextResponse.json({
       success: true,
-      connected: result.rows.length > 0,
-      message: 'Status check successful'
+      connected,
+      message: connected ? 'Upwork connected' : 'Upwork not connected'
     })
-    
+
   } catch (error) {
-    // ✅ ERROR MEIN BHI SUCCESS RETURN KARO
+    console.error('Upwork status check error:', error)
+    // Error mein bhi safe response
     return NextResponse.json({
       success: true,
       connected: false,
-      message: 'Status check completed'
+      message: 'Status check failed, assuming not connected'
     })
   }
 }
