@@ -1,4 +1,4 @@
-// app/api/upwork/jobs/route.ts - UPDATED & IMPROVED VERSION
+// app/api/upwork/jobs/route.ts - SAFE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -7,11 +7,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
-const MAX_JOBS = 500 // Increased to get more diverse jobs
-const MAX_PER_CALL = 100 // Safe limit to avoid API errors
-
-// ✅ Expanded category list to cover ALL major Upwork categories (including Figma, Shopify, etc.)
-// These are the real Upwork top-level categories & popular sub-categories that appear in job feeds
+const MAX_JOBS = 300
 const CATEGORY_LIST = [
   'Web Development',
   'Mobile Development',
@@ -19,26 +15,6 @@ const CATEGORY_LIST = [
   'Writing',
   'Customer Service',
   'Sales & Marketing',
-  'Accounting & Consulting',
-  'Admin Support',
-  'Data Science & Analytics',
-  'Engineering & Architecture',
-  'IT & Networking',
-  'Legal',
-  'Translation',
-  // Popular sub/specialized categories that show up a lot
-  'Graphic Design',
-  'Video & Animation',
-  'Digital Marketing',
-  'SEO',
-  'Shopify',
-  'WordPress',
-  'Figma',
-  'UI/UX Design',
-  'Logo Design',
-  'Ecommerce',
-  'Virtual Assistant',
-  'Social Media Marketing'
 ]
 
 type JobItem = {
@@ -57,40 +33,16 @@ type JobItem = {
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// Updated fetch with better fields + pagination support
-async function fetchJobs(
+// Fetch jobs for a single category
+async function fetchJobsForCategory(
   accessToken: string,
-  search: string = ''
+  category: string,
+  search: string
 ): Promise<JobItem[]> {
-  // Use variables for better control and pagination
-  const variables: any = {
-    searchType: 'USER_JOBS_SEARCH',
-    sortAttributes: [{ field: 'RECENCY' }],
-    pagination: { first: MAX_PER_CALL } // Get up to 100 jobs per call
-  }
-
-  // If user is searching, use title/description filter
-  if (search) {
-    variables.marketPlaceJobFilter = {
-      titleExpression_eq: search
-    }
-  }
-
   const graphqlBody = {
     query: `
-      query marketplaceJobPostingsSearch(
-        $marketPlaceJobFilter: MarketplaceJobPostingsSearchFilter
-        $searchType: MarketplaceJobPostingSearchType!
-        $sortAttributes: [MarketplaceJobPostingSearchSortAttribute!]
-        $pagination: PaginationInput
-      ) {
-        marketplaceJobPostingsSearch(
-          marketPlaceJobFilter: $marketPlaceJobFilter
-          searchType: $searchType
-          sortAttributes: $sortAttributes
-          pagination: $pagination
-        ) {
-          totalCount
+      query {
+        marketplaceJobPostingsSearch {
           edges {
             node {
               id
@@ -100,23 +52,14 @@ async function fetchJobs(
               publishedDateTime
               totalApplicants
               category
-              subcategory
               skills { name }
               amount { rawValue currency }
               hourlyBudgetMin { rawValue currency }
-              hourlyBudgetMax { rawValue currency }
-              type
-              duration
             }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
           }
         }
       }
-    `,
-    variables
+    `
   }
 
   const res = await fetch('https://api.upwork.com/graphql', {
@@ -130,40 +73,45 @@ async function fetchJobs(
 
   if (!res.ok) {
     const txt = await res.text()
-    throw new Error(`Upwork API Error: ${res.status} - ${txt.substring(0, 300)}`)
+    throw new Error(txt)
   }
 
   const json: any = await res.json()
   const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
+
   const jobs: JobItem[] = []
 
   for (const edge of edges) {
     const n = edge.node
+    // Filter by search keyword
+    if (search) {
+      const q = search.toLowerCase()
+      const match =
+        n.title?.toLowerCase().includes(q) ||
+        n.description?.toLowerCase().includes(q) ||
+        (Array.isArray(n.skills) && n.skills.some((s: any) =>
+          s?.name?.toLowerCase().includes(q)
+        ))
+      if (!match) continue
+    }
 
     let budget = 'Not specified'
     if (n.amount?.rawValue) {
-      budget = `${n.amount.currency || 'USD'} ${n.amount.rawValue} Fixed`
+      budget = `${n.amount.currency} ${n.amount.rawValue}`
     } else if (n.hourlyBudgetMin?.rawValue) {
-      const max = n.hourlyBudgetMax?.rawValue || '??'
-      budget = `${n.hourlyBudgetMin.currency || 'USD'} ${n.hourlyBudgetMin.rawValue}-${max}/hr`
+      budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
     }
-
-    // Better category: use subcategory if available, else category
-    const displayCategory = n.subcategory || n.category || 'Other'
 
     jobs.push({
       id: n.id,
-      title: n.title || 'Untitled Job',
-      description: n.description || 'No description available',
+      title: n.title || 'Job',
+      description: n.description || '',
       budget,
-      postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }),
+      postedDate: new Date(
+        n.publishedDateTime || n.createdDateTime
+      ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
-      category: displayCategory,
+      category: n.category || category,
       skills: Array.isArray(n.skills)
         ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
         : [],
@@ -191,15 +139,13 @@ export async function GET(req: NextRequest) {
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-
-    if (tokenRes.rows.length === 0) {
+    if (tokenRes.rows.length === 0)
       return NextResponse.json({
         success: false,
         jobs: [],
         upworkConnected: false,
         message: 'Upwork not connected'
       })
-    }
 
     // CACHE HIT
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
@@ -209,22 +155,21 @@ export async function GET(req: NextRequest) {
         total: cache[cacheKey].jobs.length,
         cached: true,
         upworkConnected: true,
-        message: 'Loaded from cache'
+        message: 'Loaded jobs from cache'
       })
     }
 
+    // Multi-category fetch
     const accessToken = tokenRes.rows[0].access_token
+    let allJobs: JobItem[] = []
 
-    // SINGLE CALL TO GET ALL RECENT JOBS (no category loop needed!)
-    // This returns jobs from ALL categories, including Figma, Shopify, etc.
-    let allJobs = await fetchJobs(accessToken, search)
+    for (const cat of CATEGORY_LIST) {
+      const catJobs = await fetchJobsForCategory(accessToken, cat, search)
+      allJobs.push(...catJobs)
+      if (allJobs.length >= MAX_JOBS) break
+    }
 
-    // Optional: Sort by recency and limit
-    allJobs = allJobs
-      .sort((a, b) => new Date(b.postedDate).getTime() - new Date(a.postedDate).getTime())
-      .slice(0, MAX_JOBS)
-
-    // Cache result
+    allJobs = allJobs.slice(0, MAX_JOBS)
     cache[cacheKey] = { jobs: allJobs, time: Date.now() }
 
     return NextResponse.json({
@@ -233,15 +178,11 @@ export async function GET(req: NextRequest) {
       total: allJobs.length,
       cached: false,
       upworkConnected: true,
-      message: search 
-        ? `Found ${allJobs.length} jobs matching "${search}"` 
-        : `Loaded ${allJobs.length} recent jobs from ALL Upwork categories`
+      message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
     })
-
   } catch (e: any) {
-    console.error('Upwork jobs fetch error:', e)
     return NextResponse.json(
-      { success: false, jobs: [], message: e.message || 'Failed to fetch jobs' },
+      { success: false, jobs: [], message: e.message },
       { status: 500 }
     )
   }
