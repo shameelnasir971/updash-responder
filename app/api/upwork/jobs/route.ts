@@ -1,4 +1,3 @@
-// app/api/upwork/jobs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
 import pool from '../../../../lib/database'
@@ -6,8 +5,9 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 const MAX_JOBS = 300
+const PAGE_SIZE = 50
+const CACHE_TTL = 2 * 60 * 1000
 
 const CATEGORY_LIST = [
   'Web Development',
@@ -19,7 +19,6 @@ const CATEGORY_LIST = [
   'Figma',
   'Shopify',
   'Shopify Theme Developer'
-  // aap aur categories add kar sakte hain
 ]
 
 type JobItem = {
@@ -38,17 +37,17 @@ type JobItem = {
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// Helper: fetch jobs per category with pagination
+// ===================== Fetch Jobs =====================
 async function fetchJobsForCategory(
   accessToken: string,
   category: string,
   search: string
 ): Promise<JobItem[]> {
-  let jobs: JobItem[] = []
-  let hasNextPage = true
+  let allJobs: JobItem[] = []
   let after: string | null = null
+  let hasNextPage = true
 
-  while (hasNextPage && jobs.length < MAX_JOBS) {
+  while (hasNextPage && allJobs.length < MAX_JOBS) {
     const graphqlBody = {
       query: `
         query($first: Int!, $after: String, $search: String) {
@@ -76,9 +75,9 @@ async function fetchJobsForCategory(
         }
       `,
       variables: {
-        first: 50,
+        first: PAGE_SIZE,
         after,
-        search: search || category
+        search: search || undefined
       }
     }
 
@@ -93,22 +92,23 @@ async function fetchJobsForCategory(
 
     if (!res.ok) {
       const txt = await res.text()
-      throw new Error(`Upwork API Error: ${txt}`)
+      throw new Error(`GraphQL Error: ${txt}`)
     }
 
     const json: any = await res.json()
     const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
-    const pageInfo = json.data?.marketplaceJobPostingsSearch?.pageInfo
+    const pageInfo = json.data?.marketplaceJobPostingsSearch?.pageInfo || {}
 
     for (const edge of edges) {
       const n = edge.node
-      const budget = n.amount?.rawValue
-        ? `${n.amount.currency} ${n.amount.rawValue}`
-        : n.hourlyBudgetMin?.rawValue
-        ? `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
-        : 'Not specified'
+      if (allJobs.find(j => j.id === n.id)) continue
 
-      jobs.push({
+      let budget = 'Not specified'
+      if (n.amount?.rawValue) budget = `${n.amount.currency} ${n.amount.rawValue}`
+      else if (n.hourlyBudgetMin?.rawValue)
+        budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+
+      allJobs.push({
         id: n.id,
         title: n.title || 'Job',
         description: n.description || '',
@@ -116,27 +116,27 @@ async function fetchJobsForCategory(
         postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString(),
         proposals: n.totalApplicants || 0,
         category: n.category || category,
-        skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s.name || 'Unknown Skill') : [],
+        skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s.name || 'Unknown') : [],
         verified: true,
         source: 'upwork',
         isRealJob: true
       })
+
+      if (allJobs.length >= MAX_JOBS) break
     }
 
-    after = pageInfo?.endCursor || null
-    hasNextPage = pageInfo?.hasNextPage
+    hasNextPage = pageInfo.hasNextPage
+    after = pageInfo.endCursor
   }
 
-  // Remove duplicate jobs
-  const uniqueJobs = Array.from(new Map(jobs.map(j => [j.id, j])).values())
-  return uniqueJobs.slice(0, MAX_JOBS)
+  return allJobs
 }
 
-// ================= API Handler =================
+// ===================== API Handler =====================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!user) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
@@ -155,7 +155,7 @@ export async function GET(req: NextRequest) {
         message: 'Upwork not connected'
       })
 
-    // CACHE HIT
+    // Cache hit
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
@@ -167,7 +167,6 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // FETCH JOBS
     const accessToken = tokenRes.rows[0].access_token
     let allJobs: JobItem[] = []
 
@@ -177,9 +176,7 @@ export async function GET(req: NextRequest) {
       if (allJobs.length >= MAX_JOBS) break
     }
 
-    // Remove duplicates again (cross-category duplicates)
-    allJobs = Array.from(new Map(allJobs.map(j => [j.id, j])).values()).slice(0, MAX_JOBS)
-
+    allJobs = allJobs.slice(0, MAX_JOBS)
     cache[cacheKey] = { jobs: allJobs, time: Date.now() }
 
     return NextResponse.json({
@@ -188,11 +185,10 @@ export async function GET(req: NextRequest) {
       total: allJobs.length,
       cached: false,
       upworkConnected: true,
-      message: search
-        ? `Found ${allJobs.length} jobs for "${search}"`
-        : `Loaded ${allJobs.length} jobs`
+      message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
     })
   } catch (e: any) {
+    console.error('Error fetching Upwork jobs:', e)
     return NextResponse.json(
       { success: false, jobs: [], message: e.message },
       { status: 500 }
