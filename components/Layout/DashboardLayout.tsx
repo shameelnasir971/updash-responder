@@ -1,5 +1,3 @@
-// components/Layout/DashboardLayout.tsx
-
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -37,7 +35,7 @@ export default function DashboardLayout({
       } else {
         router.push('/auth/login')
       }
-    } catch (error) {
+    } catch {
       router.push('/auth/login')
     } finally {
       setLoading(false)
@@ -45,44 +43,44 @@ export default function DashboardLayout({
   }
 
   const handleSignOut = async () => {
-    try {
-      await fetch('/api/auth', { method: 'DELETE' })
-      router.push('/auth/login')
-    } catch (error) {
-      console.error('Sign out error:', error)
-    }
+    await fetch('/api/auth', { method: 'DELETE' })
+    router.push('/auth/login')
   }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
-    <div className="h-screen flex overflow-hidden bg-gray-50">
-      <Sidebar 
+    <div className="h-screen flex bg-gray-50 overflow-hidden">
+      
+      {/* Sidebar (fixed) */}
+      <Sidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         user={user}
         handleSignOut={handleSignOut}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Topbar 
+      <div
+        className="
+          flex-1 flex flex-col
+          lg:pl-80   
+        "
+      >
+        {/* Topbar */}
+        <Topbar
           user={user}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
         />
-        
-        {/* Page Content */}
-        <main className="flex-1 relative overflow-y-auto focus:outline-none">
+
+        {/* Page Content (SCROLL ONLY HERE) */}
+        <main className="flex-1 overflow-y-auto">
           {children}
         </main>
       </div>

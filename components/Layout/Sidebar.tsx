@@ -1,3 +1,6 @@
+// components/Layout/sidebar.tsx
+
+
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -39,7 +42,6 @@ export default function Sidebar({
     { name: 'Settings', href: '/dashboard/settings', icon: '⚙️' }
   ]
 
-  // 🔄 Check Upwork connection on load
   useEffect(() => {
     checkUpworkStatus()
   }, [])
@@ -47,25 +49,21 @@ export default function Sidebar({
   const checkUpworkStatus = async () => {
     setLoadingStatus(true)
     setError(null)
-
     try {
       const res = await fetch('/api/upwork/status', {
         credentials: 'include',
         cache: 'no-store'
       })
-
       const data = await res.json()
       setUpworkConnected(data.connected === true)
-    } catch (err) {
-      console.error('Upwork status error:', err)
-      setError('Unable to check Upwork status')
+    } catch {
       setUpworkConnected(false)
+      setError('Unable to check Upwork status')
     } finally {
       setLoadingStatus(false)
     }
   }
 
-  // 🔗 Connect Upwork
   const handleConnectUpwork = async () => {
     if (connecting) return
     setConnecting(true)
@@ -76,7 +74,6 @@ export default function Sidebar({
         credentials: 'include',
         cache: 'no-store'
       })
-
       const data = await res.json()
 
       if (!data.success || !data.url) {
@@ -86,14 +83,12 @@ export default function Sidebar({
       }
 
       window.location.href = data.url
-    } catch (err) {
-      console.error(err)
+    } catch {
       setError('Failed to connect Upwork')
       setConnecting(false)
     }
   }
 
-  // ❌ Disconnect Upwork
   const handleDisconnectUpwork = async () => {
     if (!confirm('Are you sure you want to disconnect Upwork?')) return
 
@@ -102,14 +97,8 @@ export default function Sidebar({
         method: 'POST',
         credentials: 'include'
       })
-
       const data = await res.json()
-
-      if (data.success) {
-        setUpworkConnected(false)
-      } else {
-        setError('Disconnect failed')
-      }
+      if (data.success) setUpworkConnected(false)
     } catch {
       setError('Disconnect failed')
     }
@@ -117,7 +106,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Overlay (Mobile) */}
+      {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -125,19 +114,28 @@ export default function Sidebar({
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`
-          fixed top-0 left-0 z-50 h-full w-80 bg-gray-900 text-white
+          fixed top-0 left-0 z-50 h-screen w-80 bg-gray-900 text-white
           transform transition-transform duration-300
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0
         `}
       >
         {/* Header */}
-        <div className="px-6 py-5 border-b border-gray-700">
-          <h1 className="text-2xl font-bold">UPDASH</h1>
-          <p className="text-sm text-gray-400">Upwork AI Assistant</p>
+        <div className="px-6 py-5 border-b border-gray-700 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">UPDASH</h1>
+            <p className="text-sm text-gray-400">Upwork AI Assistant</p>
+          </div>
+
+          {/* ❌ Close button (mobile only) */}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden text-gray-400 hover:text-white text-2xl"
+          >
+            ✕
+          </button>
         </div>
 
         {/* Navigation */}
@@ -153,10 +151,7 @@ export default function Sidebar({
                 }}
                 className={`
                   w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left
-                  transition
-                  ${active
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800'}
+                  ${active ? 'bg-blue-600' : 'hover:bg-gray-800'}
                 `}
               >
                 <span className="text-xl">{item.icon}</span>
@@ -176,7 +171,7 @@ export default function Sidebar({
                 <p className="text-green-400 mb-3">✅ Connected</p>
                 <button
                   onClick={handleDisconnectUpwork}
-                  className="w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg"
+                  className="w-full bg-red-600 py-2 rounded-lg"
                 >
                   Disconnect
                 </button>
@@ -187,16 +182,14 @@ export default function Sidebar({
                 <button
                   onClick={handleConnectUpwork}
                   disabled={connecting}
-                  className="w-full bg-green-600 hover:bg-green-700 py-2 rounded-lg disabled:opacity-50"
+                  className="w-full bg-green-600 py-2 rounded-lg"
                 >
                   {connecting ? 'Connecting...' : 'Connect Upwork'}
                 </button>
               </>
             )}
 
-            {error && (
-              <p className="text-red-400 text-sm mt-3">{error}</p>
-            )}
+            {error && <p className="text-red-400 text-sm mt-3">{error}</p>}
           </div>
         </nav>
 
@@ -206,10 +199,9 @@ export default function Sidebar({
             <>
               <p className="font-semibold">{user.name}</p>
               <p className="text-sm text-gray-400 truncate">{user.email}</p>
-
               <button
                 onClick={handleSignOut}
-                className="mt-3 w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg"
+                className="mt-3 w-full bg-red-600 py-2 rounded-lg"
               >
                 Sign Out
               </button>
@@ -220,3 +212,4 @@ export default function Sidebar({
     </>
   )
 }
+
