@@ -81,24 +81,30 @@ async function fetchJobsForCategory(
 ): Promise<JobItem[]> {
   const graphqlBody = {
     query: `
-      query {
-        marketplaceJobPostingsSearch {
-          edges {
-            node {
-              id
-              title
-              description
-              createdDateTime
-              publishedDateTime
-              totalApplicants
-              category
-              skills { name }
-              amount { rawValue currency }
-              hourlyBudgetMin { rawValue currency }
-            }
-          }
-        }
+     query($first: Int!, $after: String, $search: String) {
+  marketplaceJobPostingsSearch(first: $first, after: $after, query: $search) {
+    edges {
+      cursor
+      node {
+        id
+        title
+        description
+        createdDateTime
+        publishedDateTime
+        totalApplicants
+        category
+        skills { name }
+        amount { rawValue currency }
+        hourlyBudgetMin { rawValue currency }
       }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
     `
   }
 
