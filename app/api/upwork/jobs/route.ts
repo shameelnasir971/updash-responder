@@ -7,6 +7,18 @@ export const dynamic = 'force-dynamic'
 
 const MAX_JOBS = 300
 const CACHE_TTL = 2 * 60 * 1000
+const CATEGORY_LIST = [
+  'Web Development',
+  'Mobile Development',
+  'Design & Creative',
+  'Writing',
+  'Customer Service',
+  'Sales & Marketing',
+  'Admin Support',
+  'Accounting & Consulting',
+  'Engineering & Architecture',
+  'Legal'
+]
 
 type JobItem = {
   id: string
@@ -24,7 +36,7 @@ type JobItem = {
 
 const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 
-// ================= SAFE UPWORK FETCH =================
+// ===== FETCH FROM UPWORK =====
 async function fetchFromUpwork(accessToken: string): Promise<JobItem[]> {
   try {
     const res = await fetch('https://api.upwork.com/graphql', {
@@ -35,25 +47,25 @@ async function fetchFromUpwork(accessToken: string): Promise<JobItem[]> {
       },
       body: JSON.stringify({
         query: `
-          query {
-            marketplaceJobPostingsSearch(first: 100) {
-              edges {
-                node {
-                  id
-                  title
-                  description
-                  createdDateTime
-                  publishedDateTime
-                  totalApplicants
-                  category
-                  skills { name }
-                  amount { rawValue currency }
-                  hourlyBudgetMin { rawValue currency }
-                }
+        query {
+          marketplaceJobPostingsSearch(first: 100) {
+            edges {
+              node {
+                id
+                title
+                description
+                createdDateTime
+                publishedDateTime
+                totalApplicants
+                category
+                skills { name }
+                amount { rawValue currency }
+                hourlyBudgetMin { rawValue currency }
               }
             }
           }
-        `
+        }
+      `
       })
     })
 
@@ -64,7 +76,6 @@ async function fetchFromUpwork(accessToken: string): Promise<JobItem[]> {
 
     return edges.map((e: any) => {
       const n = e.node
-
       let budget = 'Not specified'
       if (n.amount?.rawValue)
         budget = `${n.amount.currency} ${n.amount.rawValue}`
@@ -94,24 +105,19 @@ async function fetchFromUpwork(accessToken: string): Promise<JobItem[]> {
   }
 }
 
-// ================= API HANDLER =================
+// ===== API HANDLER =====
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user)
-      return NextResponse.json({ success: false, jobs: [] }, { status: 401 })
+    if (!user) return NextResponse.json({ success: false, jobs: [] }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.toLowerCase().trim() || ''
     const refresh = searchParams.get('refresh') === 'true'
     const cacheKey = search || '__ALL__'
 
-    // ===== CACHE =====
-    if (
-      !refresh &&
-      cache[cacheKey] &&
-      Date.now() - cache[cacheKey].time < CACHE_TTL
-    ) {
+    // ===== CACHE HIT =====
+    if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
         jobs: cache[cacheKey].jobs,
@@ -121,11 +127,19 @@ export async function GET(req: NextRequest) {
     }
 
     // ===== LOAD FROM DB =====
-    const dbRes = await pool.query(
-      `SELECT * FROM upwork_jobs ORDER BY posted_at DESC LIMIT $1`,
-      [MAX_JOBS]
-    )
+    let dbQuery = `SELECT * FROM upwork_jobs ORDER BY posted_at DESC LIMIT $1`
+    let dbParams: any[] = [MAX_JOBS]
 
+    if (search) {
+      dbQuery = `
+        SELECT * FROM upwork_jobs
+        WHERE LOWER(title) LIKE $1 OR LOWER(description) LIKE $1 OR $2 = ANY(skills)
+        ORDER BY posted_at DESC LIMIT $3
+      `
+      dbParams = [`%${search}%`, search, MAX_JOBS]
+    }
+
+    const dbRes = await pool.query(dbQuery, dbParams)
     let jobs: JobItem[] = dbRes.rows.map((r: any) => ({
       id: r.id,
       title: r.title,
@@ -140,16 +154,7 @@ export async function GET(req: NextRequest) {
       isRealJob: true
     }))
 
-    // ===== SEARCH FILTER =====
-    if (search) {
-      jobs = jobs.filter(j =>
-        j.title.toLowerCase().includes(search) ||
-        j.description.toLowerCase().includes(search) ||
-        j.skills.some((s) => s.toLowerCase().includes(search))
-      )
-    }
-
-    // ===== BACKGROUND UPWORK SYNC =====
+    // ===== REFRESH FROM UPWORK =====
     if (refresh || jobs.length < 50) {
       const tokenRes = await pool.query(
         'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
@@ -161,12 +166,10 @@ export async function GET(req: NextRequest) {
 
         for (const j of freshJobs) {
           await pool.query(
-            `
-            INSERT INTO upwork_jobs
-            (id, title, description, budget, category, skills, posted_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7)
-            ON CONFLICT (id) DO NOTHING
-            `,
+            `INSERT INTO upwork_jobs
+              (id, title, description, budget, category, skills, posted_at)
+              VALUES ($1,$2,$3,$4,$5,$6,$7)
+              ON CONFLICT (id) DO NOTHING`,
             [
               j.id,
               j.title,
@@ -178,21 +181,32 @@ export async function GET(req: NextRequest) {
             ]
           )
         }
+
+        // reload after insert
+        const updatedDb = await pool.query(
+          `SELECT * FROM upwork_jobs ORDER BY posted_at DESC LIMIT $1`,
+          [MAX_JOBS]
+        )
+        jobs = updatedDb.rows.map((r: any) => ({
+          id: r.id,
+          title: r.title,
+          description: r.description,
+          budget: r.budget,
+          postedDate: new Date(r.posted_at).toLocaleDateString(),
+          proposals: r.proposals,
+          category: r.category,
+          skills: r.skills || [],
+          verified: true,
+          source: 'upwork',
+          isRealJob: true
+        }))
       }
     }
 
     cache[cacheKey] = { jobs, time: Date.now() }
 
-    return NextResponse.json({
-      success: true,
-      jobs,
-      count: jobs.length,
-      cached: false
-    })
+    return NextResponse.json({ success: true, jobs, count: jobs.length, cached: false })
   } catch (e: any) {
-    return NextResponse.json(
-      { success: false, jobs: [], message: e.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: false, jobs: [], message: e.message }, { status: 500 })
   }
 }
