@@ -62,10 +62,11 @@ export default function Dashboard() {
       const response = await fetch('/api/auth')
       const data = await response.json()
       
-      if (data.authenticated && data.user) {
-        setUser(data.user)
-        loadJobs()
-      } else {
+     if (data.authenticated && data.user) {
+  setUser(data.user)
+  loadJobs('', true) // 🔥 FORCE refresh on first load
+}
+ else {
         window.location.href = '/auth/login'
       }
     } catch (error) {
