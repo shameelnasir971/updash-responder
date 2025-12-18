@@ -34,11 +34,8 @@ async function fetchJobs(
 
   const graphqlBody = {
     query: `
-      query SearchJobs($query: String) {
-        marketplaceJobPostingsSearch(
-          first: 100
-          query: $query
-        ) {
+      query {
+        marketplaceJobPostingsSearch {
           edges {
             node {
               id
@@ -55,10 +52,7 @@ async function fetchJobs(
           }
         }
       }
-    `,
-    variables: {
-      query: search || null
-    }
+    `
   }
 
   const res = await fetch('https://api.upwork.com/graphql', {
@@ -70,9 +64,7 @@ async function fetchJobs(
     body: JSON.stringify(graphqlBody)
   })
 
-  if (!res.ok) {
-    throw new Error(await res.text())
-  }
+  if (!res.ok) throw new Error(await res.text())
 
   const json: any = await res.json()
   const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
@@ -82,6 +74,18 @@ async function fetchJobs(
   for (const edge of edges) {
     const n = edge.node
     if (!n?.id) continue
+
+    // ✅ LOCAL keyword filtering (WORKS)
+    if (search) {
+      const q = search.toLowerCase()
+      const match =
+        n.title?.toLowerCase().includes(q) ||
+        n.description?.toLowerCase().includes(q) ||
+        n.skills?.some((s: any) =>
+          s?.name?.toLowerCase().includes(q)
+        )
+      if (!match) continue
+    }
 
     let budget = 'Not specified'
     if (n.amount?.rawValue) {
@@ -100,9 +104,7 @@ async function fetchJobs(
       ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
       category: n.category || 'General',
-      skills: Array.isArray(n.skills)
-        ? n.skills.map((s: any) => s?.name || '')
-        : [],
+      skills: n.skills?.map((s: any) => s?.name || '') || [],
       verified: true,
       source: 'upwork',
       isRealJob: true
@@ -113,6 +115,7 @@ async function fetchJobs(
 
   return jobs
 }
+
 
 // ================= API HANDLER =================
 export async function GET(req: NextRequest) {
