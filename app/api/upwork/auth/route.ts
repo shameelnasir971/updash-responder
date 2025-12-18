@@ -1,5 +1,4 @@
-
-// app/api/upwork/auth/route.ts
+// app/api/upwork/auth/route.ts - YEHI RAKHO, BAKI DELETE KAR DO
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -14,24 +13,24 @@ export async function GET() {
       return NextResponse.json({
         success: false,
         url: null,
-        error: 'Configuration missing'
+        error: 'Upwork configuration missing in environment variables'
       })
     }
     
-    // ✅ SIMPLE URL WITHOUT ANY EXTRA PARAMS
     const authUrl = `https://www.upwork.com/ab/account-security/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`
     
     return NextResponse.json({
       success: true,
       url: authUrl,
-      message: 'URL generated'
+      message: 'OAuth URL generated successfully'
     })
     
   } catch (error: any) {
+    console.error('Upwork auth error:', error)
     return NextResponse.json({
       success: false,
       url: null,
-      error: error.message
+      error: error.message || 'Internal error'
     })
   }
 }
