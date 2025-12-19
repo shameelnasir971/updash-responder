@@ -1,6 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '../../../../lib/auth'
-import pool from '../../../../lib/database'
+import { NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,158 +15,83 @@ type JobItem = {
   verified: boolean
   source: 'upwork'
   isRealJob: true
+  link: string
 }
 
-// 🔥 REAL Upwork GraphQL Query with Pagination
-const GRAPHQL_QUERY = `
-query SearchJobs($query: String!, $first: Int!, $after: String) {
-  marketplaceJobPostingsSearch(
-    query: $query
-    first: $first
-    after: $after
-  ) {
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-    edges {
-      node {
-        id
-        title
-        description
-        publishedDateTime
-        totalApplicants
-        category
-        skills { name }
-        amount { rawValue currency }
-        hourlyBudgetMin { rawValue currency }
-      }
-    }
-  }
+// Simple XML helpers
+function getTag(xml: string, tag: string) {
+  const match = xml.match(new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's'))
+  return match ? match[1] : ''
 }
-`
 
-async function fetchUpworkJobs(
-  accessToken: string,
-  search: string,
-  maxJobs = 500
-): Promise<JobItem[]> {
+export async function GET() {
+  try {
+    const keywords = [
+      'web development',
+      'javascript',
+      'react',
+      'wordpress',
+      'php',
+      'python',
+      'mobile app',
+      'frontend'
+    ]
 
-  // 🔥 Default popular keywords (Upwork approved)
-  const keywords = search
-    ? [search]
-    : [
-        'web',
-        'developer',
-        'design',
-        'react',
-        'wordpress',
-        'mobile',
-        'javascript',
-        'php',
-        'python'
-      ]
+    const jobMap = new Map<string, JobItem>()
 
-  const jobMap = new Map<string, JobItem>()
+    for (const keyword of keywords) {
+      const url = `https://www.upwork.com/ab/feed/jobs/rss?q=${encodeURIComponent(keyword)}`
 
-  for (const keyword of keywords) {
-    let cursor: string | null = null
-    let hasNextPage = true
-
-    while (hasNextPage && jobMap.size < maxJobs) {
-      const response = await fetch('https://api.upwork.com/graphql', {
-        method: 'POST',
+      const res = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: GRAPHQL_QUERY,
-          variables: {
-            query: keyword, // ❗ NEVER EMPTY
-            first: 50,
-            after: cursor
-          }
-        })
+          'User-Agent': 'Mozilla/5.0'
+        }
       })
 
-      if (!response.ok) break
+      if (!res.ok) continue
 
-      const json: any = await response.json()
-      const searchData = json?.data?.marketplaceJobPostingsSearch
-      if (!searchData) break
+      const xml = await res.text()
+      const items = xml.split('<item>').slice(1)
 
-      for (const edge of searchData.edges) {
-        const n = edge.node
+      for (const item of items) {
+        const title = getTag(item, 'title')
+        const link = getTag(item, 'link')
+        const description = getTag(item, 'description')
+        const pubDate = getTag(item, 'pubDate')
 
-        if (!jobMap.has(n.id)) {
-          jobMap.set(n.id, {
-            id: n.id,
-            title: n.title,
-            description: n.description || '',
-            budget: n.amount?.rawValue
-              ? `${n.amount.currency} ${n.amount.rawValue}`
-              : n.hourlyBudgetMin?.rawValue
-              ? `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
-              : 'Not specified',
-            postedDate: new Date(n.publishedDateTime).toLocaleDateString(),
-            proposals: n.totalApplicants || 0,
-            category: n.category || 'Other',
-            skills: n.skills?.map((s: any) => s.name) || [],
+        if (!title || !link) continue
+
+        const id = link.split('/').pop() || link
+
+        if (!jobMap.has(id)) {
+          jobMap.set(id, {
+            id,
+            title,
+            description,
+            budget: 'Check job',
+            postedDate: pubDate,
+            proposals: 0,
+            category: keyword,
+            skills: [],
             verified: true,
             source: 'upwork',
-            isRealJob: true
+            isRealJob: true,
+            link
           })
         }
       }
-
-      hasNextPage = searchData.pageInfo.hasNextPage
-      cursor = searchData.pageInfo.endCursor
-    }
-  }
-
-  return Array.from(jobMap.values()).slice(0, maxJobs)
-}
-
-
-export async function GET(req: NextRequest) {
-  try {
-    const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
     }
 
-    const { searchParams } = new URL(req.url)
-    const search = searchParams.get('search') || ''
-
-    const tokenRes = await pool.query(
-      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
-      [user.id]
-    )
-
-    if (tokenRes.rows.length === 0) {
-      return NextResponse.json({
-        success: false,
-        jobs: [],
-        upworkConnected: false,
-        message: 'Upwork not connected'
-      })
-    }
-
-    const accessToken = tokenRes.rows[0].access_token
-
-    const jobs = await fetchUpworkJobs(accessToken, search, 300)
+    const jobs = Array.from(jobMap.values())
 
     return NextResponse.json({
       success: true,
       jobs,
       total: jobs.length,
-      upworkConnected: true,
-      message: `Loaded ${jobs.length} REAL Upwork jobs`
+      message: `Loaded ${jobs.length} REAL Upwork jobs via RSS`
     })
 
   } catch (error: any) {
-    console.error('Upwork Jobs Error:', error)
     return NextResponse.json({
       success: false,
       jobs: [],
