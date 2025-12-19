@@ -99,11 +99,10 @@ export default function Dashboard() {
       
       const data = await response.json()
       console.log('📊 Jobs Data:', {
-        success: data.success,
-  count: data.total,
-        message: data.message,
-        cached: data.cached || false
-      })
+  success: data.success,
+  count: data.total, // ❗ NOT data.count
+  message: data.message
+})
 
       if (data.success) {
         setJobs(data.jobs || [])

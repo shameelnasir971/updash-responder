@@ -3,48 +3,35 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-type JobItem = {
-  id: string
-  title: string
-  description: string
-  postedDate: string
-  category: string
-  source: 'upwork'
-  isRealJob: true
-  link: string
-}
-
-// helper
-function getTag(xml: string, tag: string) {
-  const m = xml.match(
-    new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's')
-  )
-  return m ? m[1].trim() : ''
+function extract(xml: string, tag: string) {
+  const r = new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's')
+  const m = xml.match(r)
+  return m ? m[1] : ''
 }
 
 export async function GET() {
   try {
-    const KEYWORDS = [
-      'web development',
+    const keywords = [
+      'web',
       'javascript',
       'react',
       'wordpress',
-      'php',
-      'python',
-      'mobile app',
-      'frontend',
-      'backend'
+      'php'
     ]
 
-    const jobMap = new Map<string, JobItem>()
+    const jobs: any[] = []
+    const seen = new Set<string>()
 
-    for (const keyword of KEYWORDS) {
-      const rssUrl =
+    for (const key of keywords) {
+      const url =
         'https://www.upwork.com/ab/feed/jobs/rss?q=' +
-        encodeURIComponent(keyword)
+        encodeURIComponent(key)
 
-      const res = await fetch(rssUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/rss+xml'
+        }
       })
 
       if (!res.ok) continue
@@ -53,31 +40,27 @@ export async function GET() {
       const items = xml.split('<item>').slice(1)
 
       for (const item of items) {
-        const title = getTag(item, 'title')
-        const link = getTag(item, 'link')
-        const description = getTag(item, 'description')
-        const pubDate = getTag(item, 'pubDate')
+        const title = extract(item, 'title')
+        const link = extract(item, 'link')
+        const desc = extract(item, 'description')
+        const date = extract(item, 'pubDate')
 
         if (!title || !link) continue
+        if (seen.has(link)) continue
 
-        const id = link.split('/').pop() || link
+        seen.add(link)
 
-        if (!jobMap.has(id)) {
-          jobMap.set(id, {
-            id,
-            title,
-            description,
-            postedDate: pubDate,
-            category: keyword,
-            source: 'upwork',
-            isRealJob: true,
-            link
-          })
-        }
+        jobs.push({
+          id: link,
+          title,
+          description: desc,
+          postedDate: date,
+          source: 'upwork',
+          isRealJob: true,
+          link
+        })
       }
     }
-
-    const jobs = Array.from(jobMap.values())
 
     return NextResponse.json({
       success: true,
@@ -86,9 +69,11 @@ export async function GET() {
       message: `Loaded ${jobs.length} REAL Upwork jobs`
     })
   } catch (e: any) {
-    return NextResponse.json(
-      { success: false, jobs: [], message: e.message },
-      { status: 500 }
-    )
+    return NextResponse.json({
+      success: false,
+      jobs: [],
+      total: 0,
+      message: e.message
+    })
   }
 }
