@@ -51,72 +51,85 @@ query SearchJobs($query: String!, $first: Int!, $after: String) {
 async function fetchUpworkJobs(
   accessToken: string,
   search: string,
-  maxJobs = 300
+  maxJobs = 500
 ): Promise<JobItem[]> {
 
-  let jobs: JobItem[] = []
-  let cursor: string | null = null
-  let hasNextPage = true
+  // 🔥 Default popular keywords (Upwork approved)
+  const keywords = search
+    ? [search]
+    : [
+        'web',
+        'developer',
+        'design',
+        'react',
+        'wordpress',
+        'mobile',
+        'javascript',
+        'php',
+        'python'
+      ]
 
-  while (hasNextPage && jobs.length < maxJobs) {
+  const jobMap = new Map<string, JobItem>()
 
-    // ✅ res -> response (duplicate name fix)
-    const response = await fetch('https://api.upwork.com/graphql', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query: GRAPHQL_QUERY,
-        variables: {
-          query: search || '',
-          first: 50,
-          after: cursor
+  for (const keyword of keywords) {
+    let cursor: string | null = null
+    let hasNextPage = true
+
+    while (hasNextPage && jobMap.size < maxJobs) {
+      const response = await fetch('https://api.upwork.com/graphql', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: GRAPHQL_QUERY,
+          variables: {
+            query: keyword, // ❗ NEVER EMPTY
+            first: 50,
+            after: cursor
+          }
+        })
+      })
+
+      if (!response.ok) break
+
+      const json: any = await response.json()
+      const searchData = json?.data?.marketplaceJobPostingsSearch
+      if (!searchData) break
+
+      for (const edge of searchData.edges) {
+        const n = edge.node
+
+        if (!jobMap.has(n.id)) {
+          jobMap.set(n.id, {
+            id: n.id,
+            title: n.title,
+            description: n.description || '',
+            budget: n.amount?.rawValue
+              ? `${n.amount.currency} ${n.amount.rawValue}`
+              : n.hourlyBudgetMin?.rawValue
+              ? `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+              : 'Not specified',
+            postedDate: new Date(n.publishedDateTime).toLocaleDateString(),
+            proposals: n.totalApplicants || 0,
+            category: n.category || 'Other',
+            skills: n.skills?.map((s: any) => s.name) || [],
+            verified: true,
+            source: 'upwork',
+            isRealJob: true
+          })
         }
-      })
-    })
+      }
 
-    if (!response.ok) {
-      throw new Error(await response.text())
+      hasNextPage = searchData.pageInfo.hasNextPage
+      cursor = searchData.pageInfo.endCursor
     }
-
-    // ✅ json typed
-    const json: any = await response.json()
-
-    // ✅ data typed safely
-    const searchData = json?.data?.marketplaceJobPostingsSearch
-
-    if (!searchData) break
-
-    for (const edge of searchData.edges) {
-      const n = edge.node
-
-      jobs.push({
-        id: n.id,
-        title: n.title,
-        description: n.description || '',
-        budget: n.amount?.rawValue
-          ? `${n.amount.currency} ${n.amount.rawValue}`
-          : n.hourlyBudgetMin?.rawValue
-          ? `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
-          : 'Not specified',
-        postedDate: new Date(n.publishedDateTime).toLocaleDateString(),
-        proposals: n.totalApplicants || 0,
-        category: n.category || 'Other',
-        skills: n.skills?.map((s: any) => s.name) || [],
-        verified: true,
-        source: 'upwork',
-        isRealJob: true
-      })
-    }
-
-    hasNextPage = searchData.pageInfo.hasNextPage
-    cursor = searchData.pageInfo.endCursor
   }
 
-  return jobs.slice(0, maxJobs)
+  return Array.from(jobMap.values()).slice(0, maxJobs)
 }
+
 
 export async function GET(req: NextRequest) {
   try {
