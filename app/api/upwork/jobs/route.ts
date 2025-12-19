@@ -1,11 +1,9 @@
 // app/api/upwork/jobs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import Parser from 'rss-parser'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-
-// export const runtime = 'nodejs'
 
 const MAX_JOBS = 300
 const CATEGORY_LIST = [
@@ -36,7 +34,14 @@ export async function GET(req: NextRequest) {
     for (const cat of CATEGORY_LIST) {
       const query = search ? `${cat}+${search}` : cat
       const rssUrl = `https://www.upwork.com/ab/feed/jobs/rss?q=${query}&sort=recency`
-      const feed = await parser.parseURL(rssUrl)
+
+      let feed
+      try {
+        feed = await parser.parseURL(rssUrl)
+      } catch (e) {
+        console.error('RSS Fetch Error for category', cat, e)
+        continue
+      }
 
       if (!feed?.items || !Array.isArray(feed.items)) continue
 
@@ -51,14 +56,11 @@ export async function GET(req: NextRequest) {
         link: item.link || ''
       }))
 
-      if (jobs.length > 0) {
-        allJobs.push(...jobs)
-      }
-
+      if (jobs.length > 0) allJobs.push(...jobs)
       if (allJobs.length >= MAX_JOBS) break
     }
 
-    // Remove duplicates by ID
+    // Remove duplicate jobs
     const uniqueJobs = Array.from(new Map(allJobs.map(j => [j.id, j])).values())
       .slice(0, MAX_JOBS)
 
