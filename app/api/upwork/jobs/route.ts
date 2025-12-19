@@ -3,64 +3,62 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-function extract(xml: string, tag: string) {
-  const r = new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's')
-  const m = xml.match(r)
-  return m ? m[1] : ''
+type JobItem = {
+  id: string
+  title: string
+  description: string
+  postedDate: string
+  link: string
+  source: 'upwork'
+  isRealJob: true
 }
 
 export async function GET() {
   try {
     const keywords = [
-      'web',
+      'web development',
       'javascript',
       'react',
       'wordpress',
       'php'
     ]
 
-    const jobs: any[] = []
-    const seen = new Set<string>()
+    const jobMap = new Map<string, JobItem>()
 
     for (const key of keywords) {
-      const url =
+      const rssUrl =
         'https://www.upwork.com/ab/feed/jobs/rss?q=' +
         encodeURIComponent(key)
 
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': 'application/rss+xml'
-        }
-      })
+      // 🔥 RSS → JSON PROXY
+      const apiUrl =
+        'https://api.rss2json.com/v1/api.json?rss_url=' +
+        encodeURIComponent(rssUrl)
 
+      const res = await fetch(apiUrl)
       if (!res.ok) continue
 
-      const xml = await res.text()
-      const items = xml.split('<item>').slice(1)
+      const json: any = await res.json()
+      const items = json.items || []
 
       for (const item of items) {
-        const title = extract(item, 'title')
-        const link = extract(item, 'link')
-        const desc = extract(item, 'description')
-        const date = extract(item, 'pubDate')
+        if (!item.link || !item.title) continue
 
-        if (!title || !link) continue
-        if (seen.has(link)) continue
-
-        seen.add(link)
-
-        jobs.push({
-          id: link,
-          title,
-          description: desc,
-          postedDate: date,
-          source: 'upwork',
-          isRealJob: true,
-          link
-        })
+        if (!jobMap.has(item.link)) {
+          jobMap.set(item.link, {
+            id: item.link,
+            title: item.title,
+            description: item.description || '',
+            postedDate: item.pubDate || '',
+            link: item.link,
+            source: 'upwork',
+            isRealJob: true
+          })
+        }
       }
     }
+
+    const jobs = Array.from(jobMap.values())
 
     return NextResponse.json({
       success: true,
