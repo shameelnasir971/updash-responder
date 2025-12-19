@@ -3,27 +3,26 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// Job type
 type JobItem = {
   id: string
   title: string
   description: string
-  budget: string
-  postedDate: string
-  proposals: number
+  link: string
   category: string
-  skills: string[]
-  verified: boolean
+  postedDate: string
   source: 'upwork'
   isRealJob: true
-  link: string
 }
 
-// XML helper
-function getTag(xml: string, tag: string) {
-  const match = xml.match(new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's'))
+// Helper function to parse CDATA from XML
+function getCDATA(tag: string, xml: string) {
+  const regex = new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's')
+  const match = xml.match(regex)
   return match ? match[1] : ''
 }
 
+// API route
 export async function GET() {
   try {
     const keywords = [
@@ -43,36 +42,35 @@ export async function GET() {
       const url = `https://www.upwork.com/ab/feed/jobs/rss?q=${encodeURIComponent(keyword)}`
 
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/rss+xml, application/xml'
+        }
       })
       if (!res.ok) continue
 
       const xml = await res.text()
-      const items = xml.split('<item>').slice(1)
+      const items = xml.split('<item>').slice(1) // ignore first part
 
       for (const item of items) {
-        const title = getTag(item, 'title')
-        const link = getTag(item, 'link')
-        const description = getTag(item, 'description')
-        const pubDate = getTag(item, 'pubDate')
+        const title = getCDATA('title', item)
+        const link = getCDATA('link', item)
+        const description = getCDATA('description', item)
+        const pubDate = getCDATA('pubDate', item)
 
         if (!title || !link) continue
-        const id = link.split('/').pop() || link
 
+        const id = link.split('/').pop() || link
         if (!jobMap.has(id)) {
           jobMap.set(id, {
             id,
             title,
             description,
-            budget: 'Check job',
-            postedDate: pubDate,
-            proposals: 0,
+            link,
             category: keyword,
-            skills: [],
-            verified: true,
+            postedDate: pubDate,
             source: 'upwork',
-            isRealJob: true,
-            link
+            isRealJob: true
           })
         }
       }
@@ -91,6 +89,7 @@ export async function GET() {
     return NextResponse.json({
       success: false,
       jobs: [],
+      total: 0,
       message: error.message
     }, { status: 500 })
   }
