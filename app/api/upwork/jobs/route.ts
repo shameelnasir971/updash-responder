@@ -6,7 +6,8 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const CACHE_TTL = 2 * 60 * 1000
-const MAX_JOBS = 100
+const MAX_JOBS = 300
+const PAGE_SIZE = 50
 
 type Job = {
   id: string
@@ -69,12 +70,26 @@ export async function GET(req: NextRequest) {
     const accessToken = tokenRes.rows[0].access_token
     const jobMap = new Map<string, Job>()
 
+    const keywords = search
+      ? [search]
+      : ['web', 'react', 'javascript', 'shopify', 'figma', 'wordpress']
+
     const graphqlQuery = `
-      query JobSearch($query: String!) {
+      query JobSearch($keywords: String!, $offset: Int!) {
         marketplaceJobPostingsSearch(
-          filter: { query: $query }
-          sort: { field: CREATED_DATE, order: DESC }
-          paging: { offset: 0, count: 50 }
+          filter: {
+            jobSearchQuery: {
+              keywords: $keywords
+            }
+          }
+          paging: {
+            offset: $offset
+            count: ${PAGE_SIZE}
+          }
+          sort: {
+            field: CREATED_DATE
+            order: DESC
+          }
         ) {
           edges {
             node {
@@ -94,58 +109,66 @@ export async function GET(req: NextRequest) {
       }
     `
 
-    const keywords = search
-      ? [search]
-      : ['web', 'react', 'javascript', 'shopify', 'figma', 'wordpress']
-
     for (const keyword of keywords) {
-      const res = await fetch('https://api.upwork.com/graphql', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: graphqlQuery,
-          variables: { query: keyword },
-        }),
-      })
+      let offset = 0
 
-      if (!res.ok) continue
-
-      const json: any = await res.json()
-      const edges =
-        json?.data?.marketplaceJobPostingsSearch?.edges || []
-
-      for (const { node } of edges) {
-        if (!node?.id || jobMap.has(node.id)) continue
-
-        let budget = 'Not specified'
-        if (node.amount?.rawValue) {
-          budget = `${node.amount.currency} ${node.amount.rawValue}`
-        } else if (node.hourlyBudgetMin?.rawValue) {
-          budget = `${node.hourlyBudgetMin.currency} ${node.hourlyBudgetMin.rawValue}/hr`
-        }
-
-        jobMap.set(node.id, {
-          id: node.id,
-          title: node.title || 'Job',
-          description: node.description || '',
-          budget,
-          postedDate: new Date(
-            node.publishedDateTime || node.createdDateTime
-          ).toLocaleDateString(),
-          proposals: node.totalApplicants || 0,
-          category: node.category || 'General',
-          skills: Array.isArray(node.skills)
-            ? node.skills.map((s: any) => s?.name).filter(Boolean)
-            : [],
-          verified: true,
-          source: 'upwork',
-          isRealJob: true,
+      while (jobMap.size < MAX_JOBS) {
+        const res = await fetch('https://api.upwork.com/graphql', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'x-upwork-graphql-version': '1.0',
+          },
+          body: JSON.stringify({
+            query: graphqlQuery,
+            variables: {
+              keywords: keyword,
+              offset,
+            },
+          }),
         })
 
-        if (jobMap.size >= MAX_JOBS) break
+        if (!res.ok) break
+
+        const json: any = await res.json()
+        const edges =
+          json?.data?.marketplaceJobPostingsSearch?.edges || []
+
+        if (edges.length === 0) break
+
+        for (const { node } of edges) {
+          if (!node?.id || jobMap.has(node.id)) continue
+
+          let budget = 'Not specified'
+          if (node.amount?.rawValue) {
+            budget = `${node.amount.currency} ${node.amount.rawValue}`
+          } else if (node.hourlyBudgetMin?.rawValue) {
+            budget = `${node.hourlyBudgetMin.currency} ${node.hourlyBudgetMin.rawValue}/hr`
+          }
+
+          jobMap.set(node.id, {
+            id: node.id,
+            title: node.title || 'Job',
+            description: node.description || '',
+            budget,
+            postedDate: new Date(
+              node.publishedDateTime || node.createdDateTime
+            ).toLocaleDateString(),
+            proposals: node.totalApplicants || 0,
+            category: node.category || 'General',
+            skills: Array.isArray(node.skills)
+              ? node.skills.map((s: any) => s?.name).filter(Boolean)
+              : [],
+            verified: true,
+            source: 'upwork',
+            isRealJob: true,
+          })
+
+          if (jobMap.size >= MAX_JOBS) break
+        }
+
+        offset += PAGE_SIZE
       }
 
       if (jobMap.size >= MAX_JOBS) break
