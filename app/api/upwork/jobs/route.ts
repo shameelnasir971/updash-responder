@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
+    const forceRefresh = searchParams.get('refresh') === 'true'
 
     let allJobs: JobItem[] = []
 
@@ -56,11 +57,10 @@ export async function GET(req: NextRequest) {
         link: item.link || ''
       }))
 
-      if (jobs.length > 0) allJobs.push(...jobs)
+      if (jobs.length > 0) allJobs = [...allJobs, ...jobs] // ✅ push fix
       if (allJobs.length >= MAX_JOBS) break
     }
 
-    // Remove duplicate jobs
     const uniqueJobs = Array.from(new Map(allJobs.map(j => [j.id, j])).values())
       .slice(0, MAX_JOBS)
 
