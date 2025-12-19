@@ -1,76 +1,209 @@
-import { NextResponse } from 'next/server'
+// app/api/upwork/jobs/route.ts - DUPLICATE-FREE VERSION
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUser } from '../../../../lib/auth'
+import pool from '../../../../lib/database'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
-  const result: any = {
-    step1_basicInternet: null,
-    step2_upworkRSS: null,
-    step3_rss2json: null,
-    errors: []
-  }
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+const MAX_JOBS = 300
 
-  // 🔹 STEP 1: Basic internet test
-  try {
-    const r1 = await fetch('https://example.com')
-    result.step1_basicInternet = {
-      ok: r1.ok,
-      status: r1.status
-    }
-  } catch (e: any) {
-    result.step1_basicInternet = 'FAILED'
-    result.errors.push('No basic internet access')
-  }
+// All Upwork categories (update as needed)
+const CATEGORY_LIST = [
+  'Web Development',
+  'Mobile Development',
+  'Design & Creative',
+  'Writing',
+  'Customer Service',
+  'Sales & Marketing',
+  'Admin Support',
+  'IT & Networking',
+  'Engineering & Architecture',
+  'Data Science & Analytics',
+  'Translation',
+  'Legal',
+  'Finance & Accounting',
+  'HR & Recruiting',
+  'Other'
+]
 
-  // 🔹 STEP 2: Direct Upwork RSS
-  try {
-    const rssUrl =
-      'https://www.upwork.com/ab/feed/jobs/rss?q=web'
+type JobItem = {
+  id: string
+  title: string
+  description: string
+  budget: string
+  postedDate: string
+  proposals: number
+  category: string
+  skills: string[]
+  verified: boolean
+  source: 'upwork'
+  isRealJob: true
+}
 
-    const r2 = await fetch(rssUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/rss+xml'
+const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
+
+// Fetch jobs for a single category
+async function fetchJobsForCategory(
+  accessToken: string,
+  category: string,
+  search: string
+): Promise<JobItem[]> {
+  const graphqlBody = {
+    query: `
+      query {
+        marketplaceJobPostingsSearch {
+          edges {
+            node {
+              id
+              title
+              description
+              createdDateTime
+              publishedDateTime
+              totalApplicants
+              category
+              skills { name }
+              amount { rawValue currency }
+              hourlyBudgetMin { rawValue currency }
+            }
+          }
+        }
       }
+    `
+  }
+
+  const res = await fetch('https://api.upwork.com/graphql', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(graphqlBody)
+  })
+
+  if (!res.ok) {
+    const txt = await res.text()
+    throw new Error(txt)
+  }
+
+  const json: any = await res.json()
+  const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
+
+  const jobs: JobItem[] = []
+
+  for (const edge of edges) {
+    const n = edge.node
+    // Filter by search keyword
+    if (search) {
+      const q = search.toLowerCase()
+      const match =
+        n.title?.toLowerCase().includes(q) ||
+        n.description?.toLowerCase().includes(q) ||
+        (Array.isArray(n.skills) && n.skills.some((s: any) =>
+          s?.name?.toLowerCase().includes(q)
+        ))
+      if (!match) continue
+    }
+
+    let budget = 'Not specified'
+    if (n.amount?.rawValue) {
+      budget = `${n.amount.currency} ${n.amount.rawValue}`
+    } else if (n.hourlyBudgetMin?.rawValue) {
+      budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+    }
+
+    jobs.push({
+      id: n.id,
+      title: n.title || 'Job',
+      description: n.description || '',
+      budget,
+      postedDate: new Date(
+        n.publishedDateTime || n.createdDateTime
+      ).toLocaleDateString(),
+      proposals: n.totalApplicants || 0,
+      category: n.category || category,
+      skills: Array.isArray(n.skills)
+        ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
+        : [],
+      verified: true,
+      source: 'upwork',
+      isRealJob: true
     })
-
-    const text = await r2.text()
-
-    result.step2_upworkRSS = {
-      ok: r2.ok,
-      status: r2.status,
-      length: text.length,
-      preview: text.slice(0, 200)
-    }
-  } catch (e: any) {
-    result.step2_upworkRSS = 'FAILED'
-    result.errors.push('Upwork RSS blocked')
   }
 
-  // 🔹 STEP 3: RSS → JSON proxy
+  return jobs
+}
+
+// ================= API Handler =================
+export async function GET(req: NextRequest) {
   try {
-    const proxyUrl =
-      'https://api.rss2json.com/v1/api.json?rss_url=' +
-      encodeURIComponent(
-        'https://www.upwork.com/ab/feed/jobs/rss?q=web'
-      )
+    const user = await getCurrentUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const r3 = await fetch(proxyUrl)
-    const json = await r3.json()
+    const { searchParams } = new URL(req.url)
+    const search = searchParams.get('search')?.trim() || ''
+    const refresh = searchParams.get('refresh') === 'true'
+    const cacheKey = search || '__ALL__'
 
-    result.step3_rss2json = {
-      ok: r3.ok,
-      status: r3.status,
-      itemCount: Array.isArray(json.items)
-        ? json.items.length
-        : 0,
-      firstItemTitle: json.items?.[0]?.title || null
+    const tokenRes = await pool.query(
+      'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
+      [user.id]
+    )
+    if (tokenRes.rows.length === 0)
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        upworkConnected: false,
+        message: 'Upwork not connected'
+      })
+
+    // CACHE HIT
+    if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
+      return NextResponse.json({
+        success: true,
+        jobs: cache[cacheKey].jobs,
+        total: cache[cacheKey].jobs.length,
+        cached: true,
+        upworkConnected: true,
+        message: 'Loaded jobs from cache'
+      })
     }
-  } catch (e: any) {
-    result.step3_rss2json = 'FAILED'
-    result.errors.push('rss2json blocked')
-  }
 
-  return NextResponse.json(result)
+    const accessToken = tokenRes.rows[0].access_token
+    const jobMap = new Map<string, JobItem>()
+
+    // Multi-category fetch
+    for (const cat of CATEGORY_LIST) {
+      const catJobs = await fetchJobsForCategory(accessToken, cat, search)
+
+      for (const job of catJobs) {
+        if (!jobMap.has(job.id)) {
+          jobMap.set(job.id, job)
+        }
+      }
+
+      if (jobMap.size >= MAX_JOBS) break
+    }
+
+    const allJobs = Array.from(jobMap.values()).slice(0, MAX_JOBS)
+
+    cache[cacheKey] = { jobs: allJobs, time: Date.now() }
+
+    return NextResponse.json({
+      success: true,
+      jobs: allJobs,
+      total: allJobs.length,
+      cached: false,
+      upworkConnected: true,
+      message: search
+        ? `Found ${allJobs.length} unique jobs for "${search}"`
+        : `Loaded ${allJobs.length} unique jobs`
+    })
+  } catch (e: any) {
+    return NextResponse.json(
+      { success: false, jobs: [], message: e.message },
+      { status: 500 }
+    )
+  }
 }
