@@ -1,51 +1,27 @@
 // app/api/upwork/jobs/route.ts
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import Parser from 'rss-parser'
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
-
-const MAX_JOBS = 300
-const CATEGORY_LIST = [
-  'web+development', 'mobile+development', 'design+creative',
-  'writing', 'customer+service', 'sales+marketing'
-]
-
-type JobItem = {
-  id: string
-  title: string
-  description: string
-  budget: string
-  postedDate: string
-  category: string
-  source: 'upwork'
-  link: string
-}
-
 const parser = new Parser()
+const MAX_JOBS = 300
+const CATEGORY_LIST = ['web+development','mobile+development','design+creative','writing','customer+service','sales+marketing']
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
-
-    let allJobs: JobItem[] = []
+    let allJobs: any[] = []
 
     for (const cat of CATEGORY_LIST) {
       const query = search ? `${cat}+${search}` : cat
       const rssUrl = `https://www.upwork.com/ab/feed/jobs/rss?q=${query}&sort=recency`
-
-      let feed
-      try {
-        feed = await parser.parseURL(rssUrl)
-      } catch (e) {
-        console.error('RSS Fetch Error for category', cat, e)
-        continue
-      }
+      const feed = await parser.parseURL(rssUrl)
 
       if (!feed?.items || !Array.isArray(feed.items)) continue
 
-      const jobs: JobItem[] = feed.items.map(item => ({
+      const jobs = feed.items.map((item: any) => ({
         id: item.guid || item.link || Math.random().toString(),
         title: item.title || 'Job',
         description: item.contentSnippet || item.content || '',
@@ -56,12 +32,12 @@ export async function GET(req: NextRequest) {
         link: item.link || ''
       }))
 
-      allJobs = [...allJobs, ...jobs] // ✅ push error fix
+      if (jobs.length > 0) allJobs.push(...jobs)
       if (allJobs.length >= MAX_JOBS) break
     }
 
-    const uniqueJobs = Array.from(new Map(allJobs.map(j => [j.id, j])).values())
-      .slice(0, MAX_JOBS)
+    // Remove duplicates
+    const uniqueJobs = Array.from(new Map(allJobs.map(j => [j.id,j])).values()).slice(0, MAX_JOBS)
 
     return NextResponse.json({
       success: true,
