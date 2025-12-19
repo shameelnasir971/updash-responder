@@ -5,8 +5,8 @@ import { getCurrentUser } from '../../../../lib/auth'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CACHE_TTL = 2 * 60 * 1000
-const MAX_JOBS = 100
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+const MAX_JOBS = 300
 
 type Job = {
   id: string
@@ -24,19 +24,61 @@ type Job = {
 
 const cache: Record<string, { jobs: Job[]; time: number }> = {}
 
+async function fetchJobsGraphQL(accessToken: string, query: string, offset = 0, count = 50) {
+  const graphqlQuery = `
+    query JobSearch($query: String!, $offset: Int!, $count: Int!) {
+      marketplaceJobPostingsSearch(
+        filter: { query: $query }
+        sort: { field: CREATED_DATE, order: DESC }
+        paging: { offset: $offset, count: $count }
+      ) {
+        edges {
+          node {
+            id
+            title
+            description
+            createdDateTime
+            publishedDateTime
+            totalApplicants
+            category
+            skills { name }
+            amount { rawValue currency }
+            hourlyBudgetMin { rawValue currency }
+          }
+        }
+      }
+    }
+  `
+
+  const res = await fetch('https://api.upwork.com/graphql', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query: graphqlQuery,
+      variables: { query, offset, count },
+    }),
+  })
+
+  if (!res.ok) throw new Error(`GraphQL fetch failed: ${res.statusText}`)
+
+  const json: any = await res.json()
+  return json.data?.marketplaceJobPostingsSearch?.edges || []
+}
+
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json({ success: false }, { status: 401 })
-    }
+    if (!user) return NextResponse.json({ success: false }, { status: 401 })
 
     const tokenRes = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
 
-    if (tokenRes.rows.length === 0) {
+    if (tokenRes.rows.length === 0)
       return NextResponse.json({
         success: false,
         jobs: [],
@@ -44,18 +86,14 @@ export async function GET(req: NextRequest) {
         upworkConnected: false,
         message: 'Upwork not connected',
       })
-    }
 
+    const accessToken = tokenRes.rows[0].access_token
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
     const refresh = searchParams.get('refresh') === 'true'
     const cacheKey = `${search || '__ALL__'}_${MAX_JOBS}`
 
-    if (
-      !refresh &&
-      cache[cacheKey] &&
-      Date.now() - cache[cacheKey].time < CACHE_TTL
-    ) {
+    if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
       return NextResponse.json({
         success: true,
         jobs: cache[cacheKey].jobs,
@@ -66,97 +104,61 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const accessToken = tokenRes.rows[0].access_token
-    const jobMap = new Map<string, Job>()
-
-    const graphqlQuery = `
-      query JobSearch($query: String!) {
-        marketplaceJobPostingsSearch(
-          filter: { query: $query }
-          sort: { field: CREATED_DATE, order: DESC }
-          paging: { offset: 0, count: 50 }
-        ) {
-          edges {
-            node {
-              id
-              title
-              description
-              createdDateTime
-              publishedDateTime
-              totalApplicants
-              category
-              skills { name }
-              amount { rawValue currency }
-              hourlyBudgetMin { rawValue currency }
-            }
-          }
-        }
-      }
-    `
-
     const keywords = search
       ? [search]
-      : ['web', 'react', 'javascript', 'shopify', 'figma', 'wordpress']
+      : [
+          'web development',
+          'javascript',
+          'react',
+          'shopify',
+          'figma',
+          'wordpress',
+          'mobile development',
+          'design',
+        ]
+
+    const jobMap = new Map<string, Job>()
 
     for (const keyword of keywords) {
-      const res = await fetch('https://api.upwork.com/graphql', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: graphqlQuery,
-          variables: { query: keyword },
-        }),
-      })
+      let offset = 0
+      const perPage = 50
+      while (jobMap.size < MAX_JOBS) {
+        const edges = await fetchJobsGraphQL(accessToken, keyword, offset, perPage)
+        if (!edges.length) break
 
-      if (!res.ok) continue
+        for (const { node } of edges) {
+          if (!node?.id || jobMap.has(node.id)) continue
 
-      const json: any = await res.json()
-      const edges =
-        json?.data?.marketplaceJobPostingsSearch?.edges || []
+          let budget = 'Not specified'
+          if (node.amount?.rawValue) budget = `${node.amount.currency} ${node.amount.rawValue}`
+          else if (node.hourlyBudgetMin?.rawValue) budget = `${node.hourlyBudgetMin.currency} ${node.hourlyBudgetMin.rawValue}/hr`
 
-      for (const { node } of edges) {
-        if (!node?.id || jobMap.has(node.id)) continue
+          jobMap.set(node.id, {
+            id: node.id,
+            title: node.title || 'Job',
+            description: node.description || '',
+            budget,
+            postedDate: new Date(node.publishedDateTime || node.createdDateTime).toLocaleDateString(),
+            proposals: node.totalApplicants || 0,
+            category: node.category || 'General',
+            skills: Array.isArray(node.skills) ? node.skills.map((s: any) => s?.name).filter(Boolean) : [],
+            verified: true,
+            source: 'upwork',
+            isRealJob: true,
+          })
 
-        let budget = 'Not specified'
-        if (node.amount?.rawValue) {
-          budget = `${node.amount.currency} ${node.amount.rawValue}`
-        } else if (node.hourlyBudgetMin?.rawValue) {
-          budget = `${node.hourlyBudgetMin.currency} ${node.hourlyBudgetMin.rawValue}/hr`
+          if (jobMap.size >= MAX_JOBS) break
         }
 
-        jobMap.set(node.id, {
-          id: node.id,
-          title: node.title || 'Job',
-          description: node.description || '',
-          budget,
-          postedDate: new Date(
-            node.publishedDateTime || node.createdDateTime
-          ).toLocaleDateString(),
-          proposals: node.totalApplicants || 0,
-          category: node.category || 'General',
-          skills: Array.isArray(node.skills)
-            ? node.skills.map((s: any) => s?.name).filter(Boolean)
-            : [],
-          verified: true,
-          source: 'upwork',
-          isRealJob: true,
-        })
-
-        if (jobMap.size >= MAX_JOBS) break
+        if (edges.length < perPage) break
+        offset += perPage
       }
 
       if (jobMap.size >= MAX_JOBS) break
     }
 
     const jobs = Array.from(jobMap.values())
-
-    cache[cacheKey] = {
-      jobs,
-      time: Date.now(),
-    }
+    cache[cacheKey] = { jobs, time: Date.now() }
 
     return NextResponse.json({
       success: true,
@@ -167,9 +169,6 @@ export async function GET(req: NextRequest) {
       message: `Loaded ${jobs.length} jobs`,
     })
   } catch (e: any) {
-    return NextResponse.json(
-      { success: false, jobs: [], message: e.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: false, jobs: [], message: e.message }, { status: 500 })
   }
 }
