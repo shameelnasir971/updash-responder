@@ -1,8 +1,11 @@
 // app/api/upwork/jobs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import Parser from 'rss-parser'
-
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+
+// export const runtime = 'nodejs'
 
 const MAX_JOBS = 300
 const CATEGORY_LIST = [
