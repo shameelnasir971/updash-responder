@@ -47,92 +47,112 @@ const cache: Record<string, { jobs: JobItem[]; time: number }> = {}
 async function fetchJobsForCategory(
   accessToken: string,
   category: string,
-  search: string
+  search: string,
+  limit = 100
 ): Promise<JobItem[]> {
-  const graphqlBody = {
-    query: `
-      query {
-        marketplaceJobPostingsSearch {
-          edges {
-            node {
-              id
-              title
-              description
-              createdDateTime
-              publishedDateTime
-              totalApplicants
-              category
-              skills { name }
-              amount { rawValue currency }
-              hourlyBudgetMin { rawValue currency }
+
+  let jobs: JobItem[] = []
+  let hasNextPage = true
+  let cursor: string | null = null
+
+  while (hasNextPage && jobs.length < limit) {
+    const graphqlBody = {
+      query: `
+        query ($first: Int!, $after: String) {
+          marketplaceJobPostingsSearch(first: $first, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            edges {
+              node {
+                id
+                title
+                description
+                createdDateTime
+                publishedDateTime
+                totalApplicants
+                category
+                skills { name }
+                amount { rawValue currency }
+                hourlyBudgetMin { rawValue currency }
+              }
             }
           }
         }
+      `,
+      variables: {
+        first: 50,
+        after: cursor
       }
-    `
-  }
-
-  const res = await fetch('https://api.upwork.com/graphql', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(graphqlBody)
-  })
-
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt)
-  }
-
-  const json: any = await res.json()
-  const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
-
-  const jobs: JobItem[] = []
-
-  for (const edge of edges) {
-    const n = edge.node
-
-    // ✅ Keyword search filter
-    if (search) {
-      const q = search.toLowerCase()
-      const match =
-        n.title?.toLowerCase().includes(q) ||
-        n.description?.toLowerCase().includes(q) ||
-        (Array.isArray(n.skills) &&
-          n.skills.some((s: any) => s?.name?.toLowerCase().includes(q)))
-      if (!match) continue
     }
 
-    let budget = 'Not specified'
-    if (n.amount?.rawValue) {
-      budget = `${n.amount.currency} ${n.amount.rawValue}`
-    } else if (n.hourlyBudgetMin?.rawValue) {
-      budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
-    }
-
-    jobs.push({
-      id: n.id,
-      title: n.title || 'Job',
-      description: n.description || '',
-      budget,
-      postedDate: new Date(
-        n.publishedDateTime || n.createdDateTime
-      ).toLocaleDateString(),
-      proposals: n.totalApplicants || 0,
-      category: n.category || category,
-      skills: Array.isArray(n.skills)
-        ? n.skills.map((s: any) => s?.name || 'Unknown Skill')
-        : [],
-      verified: true,
-      source: 'upwork',
-      isRealJob: true
+    const res = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(graphqlBody)
     })
+
+    if (!res.ok) {
+      const txt = await res.text()
+      throw new Error(txt)
+    }
+
+    const json: any = await res.json()
+    const data = json.data?.marketplaceJobPostingsSearch
+    if (!data) break
+
+    for (const edge of data.edges || []) {
+      const n = edge.node
+
+      // 🔍 Search filter
+      if (search) {
+        const q = search.toLowerCase()
+        const match =
+          n.title?.toLowerCase().includes(q) ||
+          n.description?.toLowerCase().includes(q) ||
+          n.skills?.some((s: any) =>
+            s?.name?.toLowerCase().includes(q)
+          )
+        if (!match) continue
+      }
+
+      let budget = 'Not specified'
+      if (n.amount?.rawValue) {
+        budget = `${n.amount.currency} ${n.amount.rawValue}`
+      } else if (n.hourlyBudgetMin?.rawValue) {
+        budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+      }
+
+      jobs.push({
+        id: n.id,
+        title: n.title || 'Job',
+        description: n.description || '',
+        budget,
+        postedDate: new Date(
+          n.publishedDateTime || n.createdDateTime
+        ).toLocaleDateString(),
+        proposals: n.totalApplicants || 0,
+        category: n.category || category,
+        skills: n.skills?.map((s: any) => s?.name || 'Unknown Skill') || [],
+        verified: true,
+        source: 'upwork',
+        isRealJob: true
+      })
+
+      if (jobs.length >= limit) break
+    }
+
+    hasNextPage = data.pageInfo.hasNextPage
+    cursor = data.pageInfo.endCursor
   }
 
   return jobs
 }
+
 
 // ==============================
 // API Handler
@@ -179,10 +199,14 @@ const cacheKey = `${user.id}_${search || '__ALL__'}_${MAX_JOBS}`
    const jobMap = new Map<string, JobItem>()
 
 for (const cat of CATEGORY_LIST) {
-  const catJobs = await fetchJobsForCategory(accessToken, cat, search)
+  const catJobs = await fetchJobsForCategory(
+    accessToken,
+    cat,
+    search,
+    120 // per category
+  )
 
   for (const job of catJobs) {
-    // ✅ Same job ID dobara aaye to ignore
     if (!jobMap.has(job.id)) {
       jobMap.set(job.id, job)
     }
@@ -192,6 +216,7 @@ for (const cat of CATEGORY_LIST) {
 }
 
 const allJobs = Array.from(jobMap.values()).slice(0, MAX_JOBS)
+
 
     cache[cacheKey] = { jobs: allJobs, time: Date.now() }
 
