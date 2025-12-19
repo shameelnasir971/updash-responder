@@ -8,14 +8,11 @@ export const dynamic = 'force-dynamic'
 
 const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 const MAX_JOBS = 300
-const PAGE_SIZE = 100 // Upwork limit per request
+const PAGE_SIZE = 100
+
 const CATEGORY_LIST = [
-  'Web Development',
-  'Mobile Development',
-  'Design & Creative',
-  'Writing',
-  'Customer Service',
-  'Sales & Marketing',
+  'Web Development', 'Mobile Development', 'Design & Creative',
+  'Writing', 'Customer Service', 'Sales & Marketing'
 ]
 
 type JobItem = {
@@ -57,7 +54,6 @@ async function fetchJobsFromUpwork(token: string, search: string, category: stri
         }
       }
     `
-
     const body = {
       query,
       variables: {
@@ -73,13 +69,10 @@ async function fetchJobsFromUpwork(token: string, search: string, category: stri
       body: JSON.stringify(body)
     })
 
-    if (!res.ok) {
-      const txt = await res.text()
-      throw new Error(txt)
-    }
+    if (!res.ok) throw new Error(await res.text())
 
-    const data: any = await res.json()
-    const edges = data.data?.marketplaceJobPostingsSearch?.edges || []
+    const json: any = await res.json()
+    const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
     if (!edges.length) break
 
     const jobs: JobItem[] = edges.map((e: any) => {
@@ -105,11 +98,9 @@ async function fetchJobsFromUpwork(token: string, search: string, category: stri
     })
 
     allJobs.push(...jobs)
-
     if (allJobs.length >= MAX_JOBS) break
   }
 
-  // Remove duplicate jobs by ID
   const uniqueJobs = Array.from(new Map(allJobs.map(j => [j.id, j])).values())
   return uniqueJobs.slice(0, MAX_JOBS)
 }
@@ -125,26 +116,14 @@ export async function GET(req: NextRequest) {
     const cacheKey = search || '__ALL__'
 
     const tokenRes = await pool.query('SELECT access_token FROM upwork_accounts WHERE user_id = $1', [user.id])
-    if (tokenRes.rows.length === 0)
-      return NextResponse.json({
-        success: false,
-        jobs: [],
-        upworkConnected: false,
-        message: 'Upwork not connected'
-      })
+    if (!tokenRes.rows.length)
+      return NextResponse.json({ success: false, jobs: [], upworkConnected: false, message: 'Upwork not connected' })
 
     const accessToken = tokenRes.rows[0].access_token
 
     // CACHE HIT
     if (!refresh && cache[cacheKey] && Date.now() - cache[cacheKey].time < CACHE_TTL) {
-      return NextResponse.json({
-        success: true,
-        jobs: cache[cacheKey].jobs,
-        total: cache[cacheKey].jobs.length,
-        cached: true,
-        upworkConnected: true,
-        message: 'Loaded jobs from cache'
-      })
+      return NextResponse.json({ success: true, jobs: cache[cacheKey].jobs, total: cache[cacheKey].jobs.length, cached: true, upworkConnected: true, message: 'Loaded jobs from cache' })
     }
 
     // Multi-category fetch
@@ -158,18 +137,8 @@ export async function GET(req: NextRequest) {
     allJobs = Array.from(new Map(allJobs.map(j => [j.id, j])).values()).slice(0, MAX_JOBS)
     cache[cacheKey] = { jobs: allJobs, time: Date.now() }
 
-    return NextResponse.json({
-      success: true,
-      jobs: allJobs,
-      total: allJobs.length,
-      cached: false,
-      upworkConnected: true,
-      message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs`
-    })
+    return NextResponse.json({ success: true, jobs: allJobs, total: allJobs.length, cached: false, upworkConnected: true, message: search ? `Found ${allJobs.length} jobs for "${search}"` : `Loaded ${allJobs.length} jobs` })
   } catch (e: any) {
-    return NextResponse.json(
-      { success: false, jobs: [], message: e.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: false, jobs: [], message: e.message }, { status: 500 })
   }
 }
