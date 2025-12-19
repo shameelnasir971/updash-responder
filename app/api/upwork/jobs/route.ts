@@ -28,7 +28,6 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const search = searchParams.get('search')?.trim() || ''
-    const forceRefresh = searchParams.get('refresh') === 'true'
 
     let allJobs: JobItem[] = []
 
@@ -57,7 +56,7 @@ export async function GET(req: NextRequest) {
         link: item.link || ''
       }))
 
-      if (jobs.length > 0) allJobs = [...allJobs, ...jobs] // ✅ push fix
+      allJobs = [...allJobs, ...jobs] // ✅ push error fix
       if (allJobs.length >= MAX_JOBS) break
     }
 
