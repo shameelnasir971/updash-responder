@@ -1,10 +1,14 @@
+// app/api/upwork/jobs/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '../../../../lib/auth'
+import pool from '../../../../lib/database'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAX_JOBS = 20
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+const MAX_JOBS = 50
+const CATEGORY = 'Shopify'
 
 type JobItem = {
   id: string
@@ -15,112 +19,134 @@ type JobItem = {
   proposals: number
   category: string
   skills: string[]
-  verified: boolean
   source: 'upwork'
-  isRealJob: true
-  link: string
+  isRealJob: boolean
 }
 
-// ---------------- SAFE RSS HELPERS ----------------
-function getTag(xml: string, tag: string) {
-  const re = new RegExp(`<${tag}>(<!\\[CDATA\\[)?([\\s\\S]*?)(\\]\\]>)?</${tag}>`, 'i')
-  const m = xml.match(re)
-  return m ? m[2].trim() : ''
-}
+const cache: { jobs: JobItem[]; time: number } = { jobs: [], time: 0 }
 
-async function fetchUpworkRSS(): Promise<JobItem[]> {
+async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
-
-    const res = await fetch(
-      'https://www.upwork.com/ab/feed/jobs/rss?q=shopify',
-      {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': 'application/rss+xml,application/xml;q=0.9,*/*;q=0.8'
+    const graphqlBody = {
+      query: `
+        query {
+          marketplaceJobPostingsSearch(first: 50, query: "${CATEGORY}") {
+            edges {
+              node {
+                id
+                title
+                description
+                createdDateTime
+                publishedDateTime
+                totalApplicants
+                category
+                skills { name }
+                amount { rawValue currency }
+                hourlyBudgetMin { rawValue currency }
+              }
+            }
+          }
         }
-      }
-    )
+      `
+    }
 
-    clearTimeout(timeout)
+    const res = await fetch('https://api.upwork.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(graphqlBody)
+    })
 
     if (!res.ok) {
-      console.error('RSS HTTP Error:', res.status)
-      return []
+      const txt = await res.text()
+      throw new Error(txt)
     }
 
-    const xml = await res.text()
-    if (!xml || !xml.includes('<item>')) {
-      console.error('RSS Empty or invalid XML')
-      return []
-    }
+    const json: any = await res.json()
+    const edges = json.data?.marketplaceJobPostingsSearch?.edges || []
 
-    const items = xml.split('<item>').slice(1)
-    const jobs: JobItem[] = []
+    const jobs: JobItem[] = edges.map((edge: any) => {
+      const n = edge.node
+      let budget = 'Not specified'
+      if (n.amount?.rawValue) {
+        budget = `${n.amount.currency} ${n.amount.rawValue}`
+      } else if (n.hourlyBudgetMin?.rawValue) {
+        budget = `${n.hourlyBudgetMin.currency} ${n.hourlyBudgetMin.rawValue}/hr`
+      }
 
-    for (const item of items) {
-      const title = getTag(item, 'title')
-      const link = getTag(item, 'link')
-      const description = getTag(item, 'description')
-      const pubDate = getTag(item, 'pubDate')
-
-      if (!title || !link) continue
-
-      jobs.push({
-        id: link.split('/').pop() || link,
-        title,
-        description,
-        budget: 'Check job on Upwork',
-        postedDate: pubDate || '',
-        proposals: 0,
-        category: 'Shopify',
-        skills: [],
-        verified: true,
+      return {
+        id: n.id,
+        title: n.title || 'Job',
+        description: n.description || '',
+        budget,
+        postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString(),
+        proposals: n.totalApplicants || 0,
+        category: n.category || CATEGORY,
+        skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s.name) : [],
         source: 'upwork',
-        isRealJob: true,
-        link
-      })
+        isRealJob: true
+      }
+    })
 
-      if (jobs.length >= MAX_JOBS) break
-    }
-
-    return jobs
-  } catch (err: any) {
-    console.error('RSS Fetch Failed:', err.message)
+    return jobs.slice(0, MAX_JOBS)
+  } catch (e) {
+    console.error('Error fetching Shopify jobs:', e)
     return []
   }
 }
 
-// ---------------- API HANDLER ----------------
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json(
-        { success: false, message: 'Unauthorized' },
-        { status: 401 }
-      )
+    if (!user) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
+
+    const { searchParams } = new URL(req.url)
+    const refresh = searchParams.get('refresh') === 'true'
+
+    // CACHE HIT
+    if (!refresh && cache.jobs.length && Date.now() - cache.time < CACHE_TTL) {
+      return NextResponse.json({
+        success: true,
+        jobs: cache.jobs,
+        total: cache.jobs.length,
+        cached: true,
+        message: 'Loaded Shopify jobs from cache'
+      })
     }
 
-    const jobs = await fetchUpworkRSS()
+    // Get access token
+    const tokenRes = await pool.query('SELECT access_token FROM upwork_accounts WHERE user_id = $1', [user.id])
+    if (!tokenRes.rows.length) {
+      return NextResponse.json({
+        success: false,
+        jobs: [],
+        message: 'Upwork not connected'
+      })
+    }
+    const accessToken = tokenRes.rows[0].access_token
+
+    // Fetch latest Shopify jobs
+    let jobs = await fetchShopifyJobs(accessToken)
+
+    // Fallback: old jobs from cache if latest fetch fails
+    if (!jobs.length && cache.jobs.length) {
+      jobs = cache.jobs
+    }
+
+    cache.jobs = jobs
+    cache.time = Date.now()
 
     return NextResponse.json({
       success: true,
       jobs,
       total: jobs.length,
-      upworkConnected: true,
-      message: jobs.length
-        ? `Loaded ${jobs.length} Shopify jobs`
-        : 'Upwork RSS temporarily unavailable. Please refresh later.'
+      cached: false,
+      message: jobs.length ? 'Loaded latest Shopify jobs' : 'No Shopify jobs available. Please refresh later.'
     })
-  } catch (error: any) {
-    console.error('Final API Error:', error)
-    return NextResponse.json({
-      success: false,
-      jobs: [],
-      message: 'Temporary server issue. Please try again.'
-    })
+  } catch (e: any) {
+    console.error(e)
+    return NextResponse.json({ success: false, jobs: [], message: 'Internal Server Error' }, { status: 500 })
   }
 }
