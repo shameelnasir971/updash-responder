@@ -4,7 +4,7 @@ import { getCurrentUser } from '../../../../lib/auth'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAX_JOBS = 20 // RSS se zyada mil jati hain
+const MAX_JOBS = 20
 
 type JobItem = {
   id: string
@@ -21,33 +21,43 @@ type JobItem = {
   link: string
 }
 
-// ---------- Simple RSS helpers ----------
+// ---------------- SAFE RSS HELPERS ----------------
 function getTag(xml: string, tag: string) {
   const re = new RegExp(`<${tag}>(<!\\[CDATA\\[)?([\\s\\S]*?)(\\]\\]>)?</${tag}>`, 'i')
   const m = xml.match(re)
   return m ? m[2].trim() : ''
 }
 
-export async function GET(req: NextRequest) {
+async function fetchUpworkRSS(): Promise<JobItem[]> {
   try {
-    const user = await getCurrentUser()
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
-    }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
 
-    // 🔥 OFFICIAL UPWORK RSS (Shopify)
-    const rssUrl = 'https://www.upwork.com/ab/feed/jobs/rss?q=shopify'
-    const res = await fetch(rssUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    })
+    const res = await fetch(
+      'https://www.upwork.com/ab/feed/jobs/rss?q=shopify',
+      {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/rss+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+      }
+    )
+
+    clearTimeout(timeout)
 
     if (!res.ok) {
-      throw new Error('Failed to load Upwork RSS')
+      console.error('RSS HTTP Error:', res.status)
+      return []
     }
 
     const xml = await res.text()
-    const items = xml.split('<item>').slice(1)
+    if (!xml || !xml.includes('<item>')) {
+      console.error('RSS Empty or invalid XML')
+      return []
+    }
 
+    const items = xml.split('<item>').slice(1)
     const jobs: JobItem[] = []
 
     for (const item of items) {
@@ -76,18 +86,41 @@ export async function GET(req: NextRequest) {
       if (jobs.length >= MAX_JOBS) break
     }
 
+    return jobs
+  } catch (err: any) {
+    console.error('RSS Fetch Failed:', err.message)
+    return []
+  }
+}
+
+// ---------------- API HANDLER ----------------
+export async function GET(req: NextRequest) {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const jobs = await fetchUpworkRSS()
+
     return NextResponse.json({
       success: true,
       jobs,
       total: jobs.length,
       upworkConnected: true,
-      message: `Loaded ${jobs.length} Shopify jobs`
+      message: jobs.length
+        ? `Loaded ${jobs.length} Shopify jobs`
+        : 'Upwork RSS temporarily unavailable. Please refresh later.'
     })
   } catch (error: any) {
-    console.error('RSS Jobs Error:', error)
-    return NextResponse.json(
-      { success: false, jobs: [], message: error.message },
-      { status: 500 }
-    )
+    console.error('Final API Error:', error)
+    return NextResponse.json({
+      success: false,
+      jobs: [],
+      message: 'Temporary server issue. Please try again.'
+    })
   }
 }
