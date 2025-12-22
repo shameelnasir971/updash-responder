@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 const MAX_JOBS = 50
-const CATEGORY = 'Shopify'
+const SEARCH_KEYWORD = 'Shopify' // Change to '' for any jobs
 
 type JobItem = {
   id: string
@@ -25,12 +25,12 @@ type JobItem = {
 
 const cache: { jobs: JobItem[]; time: number } = { jobs: [], time: 0 }
 
-async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
+async function fetchJobsFromUpwork(accessToken: string): Promise<JobItem[]> {
   try {
     const graphqlBody = {
       query: `
         query {
-          marketplaceJobPostingsSearch(first: 50, query: "${CATEGORY}") {
+          marketplaceJobPostingsSearch(first: 50, query: "${SEARCH_KEYWORD}") {
             edges {
               node {
                 id
@@ -83,7 +83,7 @@ async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
         budget,
         postedDate: new Date(n.publishedDateTime || n.createdDateTime).toLocaleDateString(),
         proposals: n.totalApplicants || 0,
-        category: n.category || CATEGORY,
+        category: n.category || 'General',
         skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s.name) : [],
         source: 'upwork',
         isRealJob: true
@@ -92,7 +92,7 @@ async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
 
     return jobs.slice(0, MAX_JOBS)
   } catch (e) {
-    console.error('Error fetching Shopify jobs:', e)
+    console.error('Error fetching jobs:', e)
     return []
   }
 }
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
         jobs: cache.jobs,
         total: cache.jobs.length,
         cached: true,
-        message: 'Loaded Shopify jobs from cache'
+        message: 'Loaded jobs from cache'
       })
     }
 
@@ -127,10 +127,10 @@ export async function GET(req: NextRequest) {
     }
     const accessToken = tokenRes.rows[0].access_token
 
-    // Fetch latest Shopify jobs
-    let jobs = await fetchShopifyJobs(accessToken)
+    // Fetch latest jobs
+    let jobs = await fetchJobsFromUpwork(accessToken)
 
-    // Fallback: old jobs from cache if latest fetch fails
+    // Fallback: old jobs if latest fetch fails
     if (!jobs.length && cache.jobs.length) {
       jobs = cache.jobs
     }
