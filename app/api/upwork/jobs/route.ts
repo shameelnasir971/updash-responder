@@ -5,7 +5,7 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAX_JOBS = 10 // Upwork hard limit
+const MAX_JOBS = 10 // ⚠️ Upwork public hard limit
 
 type JobItem = {
   id: string
@@ -21,7 +21,7 @@ type JobItem = {
   isRealJob: true
 }
 
-// Shopify-only query
+// 🔥 Shopify-only GraphQL query
 const GRAPHQL_QUERY = `
 query {
   marketplaceJobPostingsSearch(query: "shopify") {
@@ -46,7 +46,7 @@ query {
 async function fetchShopifyJobs(
   accessToken: string,
   lastSeenTime: number,
-  forceInitialLoad: boolean
+  newOnly: boolean
 ): Promise<{ jobs: JobItem[]; newestTime: number }> {
 
   const res = await fetch('https://api.upwork.com/graphql', {
@@ -69,7 +69,7 @@ async function fetchShopifyJobs(
   for (const edge of edges) {
     const n = edge.node
 
-    // extra Shopify safety
+    // 🔒 Extra Shopify safety
     const isShopify =
       n.title?.toLowerCase().includes('shopify') ||
       n.description?.toLowerCase().includes('shopify') ||
@@ -83,8 +83,8 @@ async function fetchShopifyJobs(
       n.publishedDateTime || n.createdDateTime
     ).getTime()
 
-    // ❗ First load: sab dikhao
-    if (!forceInitialLoad && jobTime <= lastSeenTime) continue
+    // 🔄 NEW-only mode
+    if (newOnly && jobTime <= lastSeenTime) continue
 
     newestTime = Math.max(newestTime, jobTime)
 
@@ -103,14 +103,19 @@ async function fetchShopifyJobs(
       postedDate: new Date(jobTime).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
       category: 'Shopify',
-      skills: n.skills?.map((s: any) => s.name) || [],
+      skills: Array.isArray(n.skills)
+        ? n.skills.map((s: any) => s.name)
+        : [],
       verified: true,
       source: 'upwork',
       isRealJob: true
     })
   }
 
-  return { jobs: jobs.slice(0, MAX_JOBS), newestTime }
+  return {
+    jobs: jobs.slice(0, MAX_JOBS),
+    newestTime
+  }
 }
 
 // ================= API HANDLER =================
@@ -118,7 +123,10 @@ export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { success: false, message: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const { searchParams } = new URL(req.url)
@@ -138,19 +146,34 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const { access_token, last_seen_job_time } = tokenRes.rows[0]
+    const accessToken = tokenRes.rows[0].access_token
+    const lastSeen = Number(tokenRes.rows[0].last_seen_job_time || 0)
 
-    // forceInitialLoad = jab pehli dafa ya manual refresh
-    const forceInitialLoad = last_seen_job_time === 0 || !refresh
+    // 🔑 Rule:
+    // - refresh=false → latest 10 Shopify jobs (always show)
+    // - refresh=true  → NEW-only, fallback to latest if 0 new
+    let newOnly = refresh === true
 
-    const { jobs, newestTime } = await fetchShopifyJobs(
-      access_token,
-      last_seen_job_time || 0,
-      forceInitialLoad
+    // 1️⃣ Try fetch (NEW-only if refresh)
+    let { jobs, newestTime } = await fetchShopifyJobs(
+      accessToken,
+      lastSeen,
+      newOnly
     )
 
-    // update DB only if new jobs aayein
-    if (newestTime > (last_seen_job_time || 0)) {
+    // 2️⃣ Fallback: agar refresh par 0 new aayein → latest 10 dikha do
+    if (refresh && jobs.length === 0) {
+      const fallback = await fetchShopifyJobs(
+        accessToken,
+        0,
+        false
+      )
+      jobs = fallback.jobs
+      newestTime = Math.max(newestTime, fallback.newestTime)
+    }
+
+    // 3️⃣ Update DB (sirf aage badhao)
+    if (newestTime > lastSeen) {
       await pool.query(
         'UPDATE upwork_accounts SET last_seen_job_time = $1 WHERE user_id = $2',
         [newestTime, user.id]
@@ -162,17 +185,16 @@ export async function GET(req: NextRequest) {
       jobs,
       total: jobs.length,
       upworkConnected: true,
-      message: forceInitialLoad
-        ? `Loaded ${jobs.length} Shopify jobs`
-        : `Loaded ${jobs.length} NEW Shopify jobs`
+      message: refresh
+        ? (jobs.length ? `Loaded ${jobs.length} NEW Shopify jobs` : 'Loaded latest Shopify jobs')
+        : `Loaded ${jobs.length} Shopify jobs`
     })
 
   } catch (error: any) {
     console.error('Shopify Jobs Error:', error)
-    return NextResponse.json({
-      success: false,
-      jobs: [],
-      message: error.message
-    }, { status: 500 })
+    return NextResponse.json(
+      { success: false, jobs: [], message: error.message },
+      { status: 500 }
+    )
   }
 }
