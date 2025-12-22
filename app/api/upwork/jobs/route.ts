@@ -5,7 +5,7 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAX_JOBS = 10 // Upwork hard limit
+const MAX_JOBS = 10 // GraphQL snapshot size
 
 type JobItem = {
   id: string
@@ -19,9 +19,10 @@ type JobItem = {
   verified: boolean
   source: 'upwork'
   isRealJob: true
+  link?: string
 }
 
-// 🔥 Shopify-only query
+// ---------------- GRAPHQL (Shopify-only) ----------------
 const GRAPHQL_QUERY = `
 query {
   marketplaceJobPostingsSearch(query: "shopify") {
@@ -43,7 +44,7 @@ query {
 }
 `
 
-async function fetchLatestShopifyJobs(accessToken: string): Promise<JobItem[]> {
+async function fetchGraphQLShopify(accessToken: string): Promise<JobItem[]> {
   const res = await fetch('https://api.upwork.com/graphql', {
     method: 'POST',
     headers: {
@@ -53,25 +54,19 @@ async function fetchLatestShopifyJobs(accessToken: string): Promise<JobItem[]> {
     body: JSON.stringify({ query: GRAPHQL_QUERY })
   })
 
-  if (!res.ok) {
-    throw new Error(await res.text())
-  }
+  if (!res.ok) return []
 
   const json: any = await res.json()
   const edges = json?.data?.marketplaceJobPostingsSearch?.edges || []
 
   const jobs: JobItem[] = []
-
   for (const edge of edges) {
     const n = edge.node
 
-    // 🔒 Extra safety (sirf Shopify)
     const isShopify =
       n.title?.toLowerCase().includes('shopify') ||
       n.description?.toLowerCase().includes('shopify') ||
-      n.skills?.some((s: any) =>
-        s?.name?.toLowerCase().includes('shopify')
-      )
+      n.skills?.some((s: any) => s?.name?.toLowerCase().includes('shopify'))
 
     if (!isShopify) continue
 
@@ -92,9 +87,7 @@ async function fetchLatestShopifyJobs(accessToken: string): Promise<JobItem[]> {
       ).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
       category: 'Shopify',
-      skills: Array.isArray(n.skills)
-        ? n.skills.map((s: any) => s.name)
-        : [],
+      skills: Array.isArray(n.skills) ? n.skills.map((s: any) => s.name) : [],
       verified: true,
       source: 'upwork',
       isRealJob: true
@@ -104,15 +97,57 @@ async function fetchLatestShopifyJobs(accessToken: string): Promise<JobItem[]> {
   return jobs.slice(0, MAX_JOBS)
 }
 
-// ================= API HANDLER =================
+// ---------------- RSS FALLBACK (Official Upwork) ----------------
+function getTag(xml: string, tag: string) {
+  const re = new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]></${tag}>`, 's')
+  const m = xml.match(re)
+  return m ? m[1] : ''
+}
+
+async function fetchRSSShopify(): Promise<JobItem[]> {
+  const url = 'https://www.upwork.com/ab/feed/jobs/rss?q=shopify'
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  })
+  if (!res.ok) return []
+
+  const xml = await res.text()
+  const items = xml.split('<item>').slice(1)
+
+  const jobs: JobItem[] = []
+  for (const item of items) {
+    const title = getTag(item, 'title')
+    const link = getTag(item, 'link')
+    const description = getTag(item, 'description')
+    const pubDate = getTag(item, 'pubDate')
+    if (!title || !link) continue
+
+    const id = link.split('/').pop() || link
+    jobs.push({
+      id,
+      title,
+      description,
+      budget: 'Check job',
+      postedDate: pubDate,
+      proposals: 0,
+      category: 'Shopify',
+      skills: [],
+      verified: true,
+      source: 'upwork',
+      isRealJob: true,
+      link
+    })
+    if (jobs.length >= MAX_JOBS) break
+  }
+  return jobs
+}
+
+// ---------------- API HANDLER ----------------
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user) {
-      return NextResponse.json(
-        { success: false, message: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
     }
 
     const tokenRes = await pool.query(
@@ -131,17 +166,23 @@ export async function GET(req: NextRequest) {
 
     const accessToken = tokenRes.rows[0].access_token
 
-    // ✅ ALWAYS fetch latest 10 Shopify jobs
-    const jobs = await fetchLatestShopifyJobs(accessToken)
+    // 1) Try GraphQL (preferred)
+    let jobs = await fetchGraphQLShopify(accessToken)
+
+    // 2) Fallback to RSS if GraphQL returns 0
+    if (jobs.length === 0) {
+      jobs = await fetchRSSShopify()
+    }
 
     return NextResponse.json({
       success: true,
       jobs,
       total: jobs.length,
       upworkConnected: true,
-      message: `Loaded ${jobs.length} Shopify jobs`
+      message: jobs.length
+        ? `Loaded ${jobs.length} Shopify jobs`
+        : 'No Shopify jobs available right now'
     })
-
   } catch (error: any) {
     console.error('Shopify Jobs Error:', error)
     return NextResponse.json(
