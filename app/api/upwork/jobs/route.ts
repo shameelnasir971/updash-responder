@@ -5,10 +5,7 @@ import pool from '../../../../lib/database'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAX_JOBS = 10 // ⚠️ Upwork hard limit
-
-// 🔒 Memory store (simple & fast)
-let lastFetchedTime = 0
+const MAX_JOBS = 10 // Upwork hard limit
 
 type JobItem = {
   id: string
@@ -24,7 +21,7 @@ type JobItem = {
   isRealJob: true
 }
 
-// 🔥 Shopify-only GraphQL query
+// 🔥 Shopify-only query
 const GRAPHQL_QUERY = `
 query {
   marketplaceJobPostingsSearch(query: "shopify") {
@@ -46,7 +43,11 @@ query {
 }
 `
 
-async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
+async function fetchShopifyJobs(
+  accessToken: string,
+  lastSeenTime: number
+): Promise<{ jobs: JobItem[]; newestTime: number }> {
+
   const response = await fetch('https://api.upwork.com/graphql', {
     method: 'POST',
     headers: {
@@ -64,27 +65,29 @@ async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
   const edges = json?.data?.marketplaceJobPostingsSearch?.edges || []
 
   const jobs: JobItem[] = []
+  let newestTime = lastSeenTime
 
   for (const edge of edges) {
     const n = edge.node
 
-    // 🔎 Extra Shopify safety filter
+    // Extra Shopify safety
     const isShopify =
       n.title?.toLowerCase().includes('shopify') ||
       n.description?.toLowerCase().includes('shopify') ||
-      (Array.isArray(n.skills) &&
-        n.skills.some((s: any) =>
-          s?.name?.toLowerCase().includes('shopify')
-        ))
+      n.skills?.some((s: any) =>
+        s?.name?.toLowerCase().includes('shopify')
+      )
 
     if (!isShopify) continue
 
-    // 🕒 NEW jobs only (reload logic)
     const jobTime = new Date(
       n.publishedDateTime || n.createdDateTime
     ).getTime()
 
-    if (jobTime <= lastFetchedTime) continue
+    // ✅ only NEW jobs
+    if (jobTime <= lastSeenTime) continue
+
+    newestTime = Math.max(newestTime, jobTime)
 
     let budget = 'Not specified'
     if (n.amount?.rawValue) {
@@ -98,29 +101,23 @@ async function fetchShopifyJobs(accessToken: string): Promise<JobItem[]> {
       title: n.title,
       description: n.description || '',
       budget,
-      postedDate: new Date(
-        n.publishedDateTime || n.createdDateTime
-      ).toLocaleDateString(),
+      postedDate: new Date(jobTime).toLocaleDateString(),
       proposals: n.totalApplicants || 0,
-      category: n.category || 'Shopify',
-      skills: Array.isArray(n.skills)
-        ? n.skills.map((s: any) => s?.name || '')
-        : [],
+      category: 'Shopify',
+      skills: n.skills?.map((s: any) => s.name) || [],
       verified: true,
       source: 'upwork',
       isRealJob: true
     })
   }
 
-  // 🧠 Update last fetch time
-  if (jobs.length > 0) {
-    lastFetchedTime = Date.now()
+  return {
+    jobs: jobs.slice(0, MAX_JOBS),
+    newestTime
   }
-
-  return jobs.slice(0, MAX_JOBS)
 }
 
-// ================= API HANDLER =================
+// ================= HANDLER =================
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -128,11 +125,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
     }
 
+    // Token
     const tokenRes = await pool.query(
       'SELECT access_token FROM upwork_accounts WHERE user_id = $1',
       [user.id]
     )
-
     if (tokenRes.rows.length === 0) {
       return NextResponse.json({
         success: false,
@@ -144,18 +141,45 @@ export async function GET(req: NextRequest) {
 
     const accessToken = tokenRes.rows[0].access_token
 
-    const jobs = await fetchShopifyJobs(accessToken)
+    // Last seen time
+    const stateRes = await pool.query(
+      'SELECT last_seen_time FROM upwork_job_state WHERE user_id = $1',
+      [user.id]
+    )
+
+    const lastSeenTime = stateRes.rows[0]?.last_seen_time || 0
+
+    const { jobs, newestTime } = await fetchShopifyJobs(
+      accessToken,
+      lastSeenTime
+    )
+
+    // Update state
+    if (newestTime > lastSeenTime) {
+      await pool.query(
+        `
+        INSERT INTO upwork_job_state (user_id, last_seen_time)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id)
+        DO UPDATE SET last_seen_time = $2
+        `,
+        [user.id, newestTime]
+      )
+    }
 
     return NextResponse.json({
       success: true,
       jobs,
       total: jobs.length,
       upworkConnected: true,
-      message: `Loaded ${jobs.length} NEW Shopify jobs`
+      message:
+        jobs.length > 0
+          ? `Loaded ${jobs.length} NEW Shopify jobs`
+          : 'No new Shopify jobs yet'
     })
 
   } catch (error: any) {
-    console.error('Upwork Shopify Jobs Error:', error)
+    console.error(error)
     return NextResponse.json({
       success: false,
       jobs: [],
